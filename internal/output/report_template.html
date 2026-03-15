@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TraceScope Report</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; display: flex; height: 100vh; overflow: hidden; }
+
+#sidebar { width: 320px; background: #161b22; border-right: 1px solid #30363d; overflow-y: auto; padding: 16px; flex-shrink: 0; }
+#sidebar h2 { color: #58a6ff; font-size: 18px; margin-bottom: 12px; }
+#sidebar h3 { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 8px; }
+
+#searchInput { width: 100%; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 14px; outline: none; }
+#searchInput:focus { border-color: #58a6ff; }
+
+.stat-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.stat-label { color: #8b949e; }
+.stat-value { color: #c9d1d9; font-weight: 600; }
+
+.filter-group { margin: 4px 0; }
+.filter-group label { display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; padding: 2px 0; }
+.filter-group input[type="checkbox"] { accent-color: #58a6ff; }
+
+.hotspot-item { padding: 6px 8px; margin: 2px 0; background: #0d1117; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; justify-content: space-between; }
+.hotspot-item:hover { background: #1c2128; }
+.hotspot-name { color: #58a6ff; font-weight: 500; }
+.hotspot-count { color: #8b949e; }
+
+#blast-summary { background: #1c1208; border: 1px solid #6e4a00; border-radius: 6px; padding: 12px; margin-top: 12px; }
+#blast-summary h3 { color: #f0883e; margin-bottom: 8px; }
+.risk-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.risk-high { background: #490202; color: #f85149; }
+.risk-medium { background: #3d2004; color: #f0883e; }
+.risk-low { background: #0a3212; color: #3fb950; }
+
+#graph-container { flex: 1; position: relative; }
+#graph-container svg { width: 100%; height: 100%; }
+
+#detail-panel { position: absolute; top: 16px; right: 16px; width: 300px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; display: none; max-height: 80vh; overflow-y: auto; z-index: 10; }
+#detail-panel h3 { color: #58a6ff; font-size: 16px; margin-bottom: 4px; }
+#detail-panel .file { color: #8b949e; font-size: 12px; margin-bottom: 12px; }
+#detail-panel .section-title { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 4px; }
+#detail-panel .dep-item { font-size: 12px; padding: 3px 0; color: #c9d1d9; cursor: pointer; }
+#detail-panel .dep-item:hover { color: #58a6ff; }
+#detail-panel .close-btn { position: absolute; top: 8px; right: 12px; background: none; border: none; color: #8b949e; font-size: 18px; cursor: pointer; }
+#detail-panel .close-btn:hover { color: #c9d1d9; }
+
+.legend { position: absolute; bottom: 16px; left: 336px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; font-size: 11px; display: flex; gap: 16px; z-index: 5; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>TraceScope</h2>
+  <div style="margin-bottom:12px"><input type="text" id="searchInput" placeholder="Search functions..."></div>
+
+  <h3>Graph</h3>
+  <div class="stat-row"><span class="stat-label">Nodes</span><span class="stat-value" id="stat-nodes">-</span></div>
+  <div class="stat-row"><span class="stat-label">Edges</span><span class="stat-value" id="stat-edges">-</span></div>
+  <div class="stat-row"><span class="stat-label">Functions</span><span class="stat-value" id="stat-functions">-</span></div>
+  <div class="stat-row"><span class="stat-label">Files</span><span class="stat-value" id="stat-files">-</span></div>
+  <div class="stat-row"><span class="stat-label">Classes</span><span class="stat-value" id="stat-classes">-</span></div>
+
+  <h3>Filters</h3>
+  <div class="filter-group">
+    <label><input type="checkbox" id="filter-function" checked> Functions</label>
+    <label><input type="checkbox" id="filter-file" checked> Files</label>
+    <label><input type="checkbox" id="filter-class" checked> Classes</label>
+  </div>
+  <div class="filter-group" id="edge-filters">
+    <label><input type="checkbox" id="filter-calls" checked> CALLS</label>
+    <label><input type="checkbox" id="filter-contains" checked> CONTAINS</label>
+    <label><input type="checkbox" id="filter-imports"> IMPORTS</label>
+    <label><input type="checkbox" id="filter-extends" checked> EXTENDS</label>
+  </div>
+
+  <h3>Top Hotspots</h3>
+  <div id="hotspots-list"></div>
+
+  <div id="blast-summary" style="display:none">
+    <h3>Blast Radius</h3>
+    <div id="blast-stats"></div>
+  </div>
+</div>
+
+<div id="graph-container">
+  <svg id="graph"></svg>
+  <div id="detail-panel">
+    <button class="close-btn" onclick="closeDetail()">&times;</button>
+    <h3 id="detail-name"></h3>
+    <div class="file" id="detail-file"></div>
+    <div id="detail-meta"></div>
+    <div class="section-title">Callers (<span id="detail-caller-count">0</span>)</div>
+    <div id="detail-callers"></div>
+    <div class="section-title">Calls (<span id="detail-callee-count">0</span>)</div>
+    <div id="detail-callees"></div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#4a90d9"></div> Function</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#8b949e"></div> File</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#5cb85c"></div> Class</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> Changed</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f39c12"></div> Affected</div>
+  </div>
+</div>
+
+<script>{{.D3Script}}</script>
+<script>
+const graphData = {{.GraphDataJSON}};
+const analysisData = {{.AnalysisDataJSON}};
+
+// Precompute lookups
+const nodeMap = {};
+graphData.nodes.forEach(n => nodeMap[n.id] = n);
+
+const inbound = {}, outbound = {};
+graphData.edges.forEach(e => {
+  if (e.type === 'CALLS') {
+    if (!inbound[e.target]) inbound[e.target] = [];
+    inbound[e.target].push(e.source);
+    if (!outbound[e.source]) outbound[e.source] = [];
+    outbound[e.source].push(e.target);
+  }
+});
+
+// Blast radius sets
+const changedNodeIDs = new Set();
+const affectedNodeIDs = new Set();
+const affectedRisk = {};
+if (analysisData) {
+  (analysisData.changed_functions || []).forEach(cf => changedNodeIDs.add(cf.node_id));
+  (analysisData.affected_functions || []).forEach(af => {
+    affectedNodeIDs.add(af.node.id);
+    affectedRisk[af.node.id] = af.risk;
+  });
+}
+
+// Stats
+document.getElementById('stat-nodes').textContent = graphData.nodes.length;
+document.getElementById('stat-edges').textContent = graphData.edges.length;
+document.getElementById('stat-functions').textContent = graphData.nodes.filter(n => n.type === 'function').length;
+document.getElementById('stat-files').textContent = graphData.nodes.filter(n => n.type === 'file').length;
+document.getElementById('stat-classes').textContent = graphData.nodes.filter(n => n.type === 'class').length;
+
+// Hotspots
+const hotspots = graphData.nodes
+  .filter(n => n.type === 'function')
+  .map(n => ({ ...n, callers: (inbound[n.id] || []).length }))
+  .sort((a, b) => b.callers - a.callers)
+  .slice(0, 10);
+
+const hotspotsList = document.getElementById('hotspots-list');
+hotspots.forEach(h => {
+  const div = document.createElement('div');
+  div.className = 'hotspot-item';
+  div.innerHTML = `<span class="hotspot-name">${h.name}</span><span class="hotspot-count">${h.callers} callers</span>`;
+  div.onclick = () => focusNode(h.id);
+  hotspotsList.appendChild(div);
+});
+
+// Blast radius summary
+if (analysisData) {
+  document.getElementById('blast-summary').style.display = 'block';
+  const af = analysisData.affected_functions || [];
+  const high = af.filter(a => a.risk === 'HIGH').length;
+  const med = af.filter(a => a.risk === 'MEDIUM').length;
+  const low = af.filter(a => a.risk === 'LOW').length;
+  document.getElementById('blast-stats').innerHTML = `
+    <div class="stat-row"><span class="stat-label">Changed files</span><span class="stat-value">${(analysisData.changed_files||[]).length}</span></div>
+    <div class="stat-row"><span class="stat-label">Changed functions</span><span class="stat-value">${(analysisData.changed_functions||[]).length}</span></div>
+    <div class="stat-row"><span class="stat-label">Affected</span><span class="stat-value">${af.length}</span></div>
+    <div style="margin-top:8px">
+      ${high ? `<span class="risk-badge risk-high">${high} HIGH</span> ` : ''}
+      ${med ? `<span class="risk-badge risk-medium">${med} MEDIUM</span> ` : ''}
+      ${low ? `<span class="risk-badge risk-low">${low} LOW</span>` : ''}
+    </div>`;
+}
+
+// Graph rendering
+const svg = d3.select('#graph');
+const width = document.getElementById('graph-container').clientWidth;
+const height = document.getElementById('graph-container').clientHeight;
+
+const g = svg.append('g');
+
+// Zoom
+const zoom = d3.zoom().scaleExtent([0.1, 8]).on('zoom', e => g.attr('transform', e.transform));
+svg.call(zoom);
+
+// Prepare nodes and links
+let nodes = graphData.nodes.map(n => ({
+  ...n,
+  callerCount: (inbound[n.id] || []).length,
+  calleeCount: (outbound[n.id] || []).length
+}));
+
+let links = graphData.edges.map(e => ({ source: e.source, target: e.target, type: e.type }));
+
+function nodeColor(n) {
+  if (changedNodeIDs.has(n.id)) return '#e74c3c';
+  if (affectedNodeIDs.has(n.id)) return '#f39c12';
+  if (n.type === 'function') return '#4a90d9';
+  if (n.type === 'class') return '#5cb85c';
+  return '#555';
+}
+
+function nodeRadius(n) {
+  if (n.type === 'file') return 3;
+  return Math.max(4, Math.min(18, Math.sqrt(n.callerCount + 1) * 3));
+}
+
+function edgeColor(type) {
+  if (type === 'CALLS') return '#4a90d9';
+  if (type === 'EXTENDS' || type === 'IMPLEMENTS') return '#5cb85c';
+  if (type === 'IMPORTS') return '#f0883e';
+  return '#30363d';
+}
+
+// Force simulation
+const simulation = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(links).id(d => d.id).distance(60))
+  .force('charge', d3.forceManyBody().strength(-120))
+  .force('center', d3.forceCenter(width / 2, height / 2))
+  .force('collide', d3.forceCollide().radius(d => nodeRadius(d) + 2));
+
+const link = g.append('g')
+  .selectAll('line')
+  .data(links)
+  .join('line')
+  .attr('stroke', d => edgeColor(d.type))
+  .attr('stroke-opacity', 0.25)
+  .attr('stroke-width', 1);
+
+const node = g.append('g')
+  .selectAll('circle')
+  .data(nodes)
+  .join('circle')
+  .attr('r', d => nodeRadius(d))
+  .attr('fill', d => nodeColor(d))
+  .attr('stroke', d => changedNodeIDs.has(d.id) || affectedNodeIDs.has(d.id) ? '#fff' : 'none')
+  .attr('stroke-width', d => changedNodeIDs.has(d.id) ? 2 : affectedNodeIDs.has(d.id) ? 1 : 0)
+  .attr('cursor', 'pointer')
+  .call(d3.drag()
+    .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+    .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+    .on('end', (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+  );
+
+// Labels for important nodes
+const label = g.append('g')
+  .selectAll('text')
+  .data(nodes.filter(n => n.type === 'function' && (n.callerCount >= 3 || changedNodeIDs.has(n.id) || affectedNodeIDs.has(n.id))))
+  .join('text')
+  .text(d => d.name)
+  .attr('font-size', 10)
+  .attr('fill', '#8b949e')
+  .attr('dx', d => nodeRadius(d) + 4)
+  .attr('dy', 3)
+  .attr('pointer-events', 'none');
+
+simulation.on('tick', () => {
+  link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+  node.attr('cx', d => d.x).attr('cy', d => d.y);
+  label.attr('x', d => d.x).attr('y', d => d.y);
+});
+
+// Hover highlight
+node.on('mouseover', (e, d) => {
+  const connected = new Set([d.id]);
+  links.forEach(l => {
+    const sid = typeof l.source === 'object' ? l.source.id : l.source;
+    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    if (sid === d.id) connected.add(tid);
+    if (tid === d.id) connected.add(sid);
+  });
+  node.attr('opacity', n => connected.has(n.id) ? 1 : 0.1);
+  link.attr('stroke-opacity', l => {
+    const sid = typeof l.source === 'object' ? l.source.id : l.source;
+    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    return connected.has(sid) && connected.has(tid) ? 0.8 : 0.03;
+  });
+  label.attr('opacity', n => connected.has(n.id) ? 1 : 0.1);
+}).on('mouseout', () => {
+  node.attr('opacity', 1);
+  link.attr('stroke-opacity', 0.25);
+  label.attr('opacity', 1);
+});
+
+// Click detail
+node.on('click', (e, d) => showDetail(d));
+
+function showDetail(d) {
+  const panel = document.getElementById('detail-panel');
+  panel.style.display = 'block';
+  document.getElementById('detail-name').textContent = d.name;
+
+  let fileLine = d.file_path || '';
+  if (d.start_line) fileLine += ':' + d.start_line;
+  document.getElementById('detail-file').textContent = fileLine;
+
+  let meta = `<div class="stat-row"><span class="stat-label">Type</span><span class="stat-value">${d.type}</span></div>`;
+  if (d.package) meta += `<div class="stat-row"><span class="stat-label">Package</span><span class="stat-value">${d.package}</span></div>`;
+  if (d.language) meta += `<div class="stat-row"><span class="stat-label">Language</span><span class="stat-value">${d.language}</span></div>`;
+  if (d.is_export) meta += `<div class="stat-row"><span class="stat-label">Exported</span><span class="stat-value">yes</span></div>`;
+  if (changedNodeIDs.has(d.id)) meta += `<div class="stat-row"><span class="stat-label">Status</span><span class="risk-badge risk-high">CHANGED</span></div>`;
+  if (affectedNodeIDs.has(d.id)) meta += `<div class="stat-row"><span class="stat-label">Risk</span><span class="risk-badge risk-${(affectedRisk[d.id]||'low').toLowerCase()}">${affectedRisk[d.id]}</span></div>`;
+  document.getElementById('detail-meta').innerHTML = meta;
+
+  const callers = (inbound[d.id] || []).map(id => nodeMap[id]).filter(Boolean);
+  document.getElementById('detail-caller-count').textContent = callers.length;
+  document.getElementById('detail-callers').innerHTML = callers.map(c =>
+    `<div class="dep-item" onclick="focusNode('${c.id}')">${c.name} <span style="color:#8b949e;font-size:11px">${c.type}</span></div>`
+  ).join('') || '<div style="color:#8b949e;font-size:12px">None</div>';
+
+  const callees = (outbound[d.id] || []).map(id => nodeMap[id]).filter(Boolean);
+  document.getElementById('detail-callee-count').textContent = callees.length;
+  document.getElementById('detail-callees').innerHTML = callees.map(c =>
+    `<div class="dep-item" onclick="focusNode('${c.id}')">${c.name} <span style="color:#8b949e;font-size:11px">${c.type}</span></div>`
+  ).join('') || '<div style="color:#8b949e;font-size:12px">None</div>';
+}
+
+function closeDetail() { document.getElementById('detail-panel').style.display = 'none'; }
+
+// Search
+document.getElementById('searchInput').addEventListener('input', function() {
+  const query = this.value.toLowerCase();
+  if (!query) { node.attr('opacity', 1); label.attr('opacity', 1); return; }
+  node.attr('opacity', d => d.name.toLowerCase().includes(query) ? 1 : 0.1);
+  label.attr('opacity', d => d.name.toLowerCase().includes(query) ? 1 : 0.1);
+});
+
+function focusNode(id) {
+  const n = nodes.find(n => n.id === id);
+  if (!n) return;
+  const t = d3.zoomIdentity.translate(width/2 - n.x * 2, height/2 - n.y * 2).scale(2);
+  svg.transition().duration(750).call(zoom.transform, t);
+  showDetail(n);
+}
+
+// Filters
+function applyFilters() {
+  const showFunc = document.getElementById('filter-function').checked;
+  const showFile = document.getElementById('filter-file').checked;
+  const showClass = document.getElementById('filter-class').checked;
+  const showCalls = document.getElementById('filter-calls').checked;
+  const showContains = document.getElementById('filter-contains').checked;
+  const showImports = document.getElementById('filter-imports').checked;
+  const showExtends = document.getElementById('filter-extends').checked;
+
+  const visibleNodes = new Set();
+  node.attr('display', d => {
+    const show = (d.type === 'function' && showFunc) || (d.type === 'file' && showFile) || (d.type === 'class' && showClass);
+    if (show) visibleNodes.add(d.id);
+    return show ? null : 'none';
+  });
+  label.attr('display', d => visibleNodes.has(d.id) ? null : 'none');
+  link.attr('display', l => {
+    const sid = typeof l.source === 'object' ? l.source.id : l.source;
+    const tid = typeof l.target === 'object' ? l.target.id : l.target;
+    const typeShow = (l.type === 'CALLS' && showCalls) || (l.type === 'CONTAINS' && showContains) ||
+                     (l.type === 'IMPORTS' && showImports) || ((l.type === 'EXTENDS' || l.type === 'IMPLEMENTS') && showExtends);
+    return typeShow && visibleNodes.has(sid) && visibleNodes.has(tid) ? null : 'none';
+  });
+}
+
+document.querySelectorAll('#sidebar input[type="checkbox"]').forEach(cb => cb.addEventListener('change', applyFilters));
+applyFilters();
+</script>
+</body>
+</html>
