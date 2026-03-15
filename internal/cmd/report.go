@@ -154,5 +154,7 @@ func openBrowser(path string) {
 	default:
 		cmd = exec.Command("xdg-open", path)
 	}
-	_ = cmd.Start()
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "  Could not open browser: %v\n", err)
+	}
 }

@@ -7,6 +7,7 @@ import (
 
 	diffpkg "github.com/anurag/tracescope/internal/diff"
 	"github.com/anurag/tracescope/internal/graph"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // findRepoRoot uses git to find the repository root.
@@ -59,29 +60,21 @@ func splitGlobs(patterns string) []string {
 	return globs
 }
 
-// matchesAnyGlob checks if a path matches any of the glob patterns.
-// Supports ** as a prefix match (e.g., "vendor/**" matches "vendor/foo/bar.go").
+// matchesAnyGlob checks if a path matches any of the glob patterns using doublestar.
 func matchesAnyGlob(path string, globs []string) bool {
 	normalized := filepath.ToSlash(path)
 	for _, g := range globs {
 		if g == "" {
 			continue
 		}
-		// Handle ** patterns as prefix match
-		if strings.HasSuffix(g, "/**") {
-			prefix := strings.TrimSuffix(g, "/**")
-			if strings.HasPrefix(normalized, prefix+"/") || normalized == prefix {
+		if matched, _ := doublestar.Match(g, normalized); matched {
+			return true
+		}
+		// Also try matching against just the filename for simple patterns
+		if !strings.Contains(g, "/") {
+			if matched, _ := doublestar.Match(g, filepath.Base(normalized)); matched {
 				return true
 			}
-			continue
-		}
-		// Standard glob match on the filename
-		if matched, _ := filepath.Match(g, filepath.Base(normalized)); matched {
-			return true
-		}
-		// Also try matching against the full path
-		if matched, _ := filepath.Match(g, normalized); matched {
-			return true
 		}
 	}
 	return false

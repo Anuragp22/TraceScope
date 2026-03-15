@@ -1,9 +1,11 @@
 package analyzer
 
 import (
+	"path/filepath"
 	"sort"
 
 	"github.com/anurag/tracescope/internal/graph"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // HotspotFunction represents a function ranked by how coupled it is.
@@ -125,32 +127,15 @@ func classifyHotspotRisk(inboundCallers int) RiskLevel {
 }
 
 // matchesAnyIgnore checks if a file path matches any ignore pattern.
-// Uses the same ** prefix match convention as the CLI --ignore flag.
 func matchesAnyIgnore(filePath string, globs []string) bool {
+	normalized := filepath.ToSlash(filePath)
 	for _, g := range globs {
 		if g == "" {
 			continue
 		}
-		// Handle ** as prefix match
-		if len(g) > 3 && g[len(g)-3:] == "/**" {
-			prefix := g[:len(g)-3]
-			normalized := toSlash(filePath)
-			if len(normalized) > len(prefix) && normalized[:len(prefix)+1] == prefix+"/" {
-				return true
-			}
+		if matched, _ := doublestar.Match(g, normalized); matched {
+			return true
 		}
 	}
 	return false
-}
-
-func toSlash(p string) string {
-	result := make([]byte, len(p))
-	for i := 0; i < len(p); i++ {
-		if p[i] == '\\' {
-			result[i] = '/'
-		} else {
-			result[i] = p[i]
-		}
-	}
-	return string(result)
 }

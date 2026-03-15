@@ -1,9 +1,7 @@
 package parser
 
 import (
-	"context"
 	"strings"
-	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -20,15 +18,7 @@ func NewJavaScriptParser() *JavaScriptParser {
 func (p *JavaScriptParser) Language() Language { return LangJavaScript }
 
 func (p *JavaScriptParser) Parse(filePath string, source []byte) (*FileResult, error) {
-	parser := sitter.NewParser()
-	defer parser.Close()
-
-	parser.SetLanguage(p.lang)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	tree, err := parser.ParseCtx(ctx, nil, source)
+	tree, err := parseWithTreeSitter(p.lang, source)
 	if err != nil {
 		return nil, err
 	}

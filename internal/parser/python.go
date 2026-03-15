@@ -1,10 +1,8 @@
 package parser
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
-	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
@@ -21,15 +19,7 @@ func NewPythonParser() *PythonParser {
 func (p *PythonParser) Language() Language { return LangPython }
 
 func (p *PythonParser) Parse(filePath string, source []byte) (*FileResult, error) {
-	parser := sitter.NewParser()
-	defer parser.Close()
-
-	parser.SetLanguage(p.lang)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	tree, err := parser.ParseCtx(ctx, nil, source)
+	tree, err := parseWithTreeSitter(p.lang, source)
 	if err != nil {
 		return nil, err
 	}

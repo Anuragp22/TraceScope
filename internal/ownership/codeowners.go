@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // CodeownersRule is a single pattern → owners mapping.
@@ -126,83 +128,19 @@ func (c *Codeowners) SuggestReviewers(filePaths []string) []OwnerSummary {
 func matchPattern(pattern, filePath string) bool {
 	pattern = filepath.ToSlash(pattern)
 
-	// If pattern starts with /, it's anchored to root — strip the /
+	// If pattern starts with /, it's anchored to root
 	if strings.HasPrefix(pattern, "/") {
 		pattern = pattern[1:]
 	}
 
-	// Handle ** (matches any number of directories)
-	if strings.Contains(pattern, "**") {
-		return matchDoublestar(pattern, filePath)
-	}
-
-	// If pattern has no /, it matches anywhere in the path
-	if !strings.Contains(pattern, "/") {
-		// Match against filename or filepath.Match against every segment
-		base := filepath.Base(filePath)
-		if matched, _ := filepath.Match(pattern, base); matched {
-			return true
-		}
-		// Also try full path match
-		if matched, _ := filepath.Match(pattern, filePath); matched {
-			return true
-		}
-		return false
-	}
-
-	// Pattern has a / — match against full path
-	if matched, _ := filepath.Match(pattern, filePath); matched {
+	// Use doublestar for full glob support
+	if matched, _ := doublestar.Match(pattern, filePath); matched {
 		return true
 	}
 
-	// Try suffix match (e.g., "docs/*.md" matches "src/docs/readme.md")
-	pathParts := strings.Split(filePath, "/")
-	patternParts := strings.Split(pattern, "/")
-	if len(patternParts) <= len(pathParts) {
-		suffix := strings.Join(pathParts[len(pathParts)-len(patternParts):], "/")
-		if matched, _ := filepath.Match(pattern, suffix); matched {
-			return true
-		}
-	}
-
-	return false
-}
-
-// matchDoublestar handles ** patterns.
-func matchDoublestar(pattern, filePath string) bool {
-	// Split pattern on **
-	parts := strings.SplitN(pattern, "**", 2)
-	prefix := strings.TrimRight(parts[0], "/")
-	suffix := ""
-	if len(parts) > 1 {
-		suffix = strings.TrimLeft(parts[1], "/")
-	}
-
-	// Check prefix
-	if prefix != "" && !strings.HasPrefix(filePath, prefix+"/") && filePath != prefix {
-		return false
-	}
-
-	// Check suffix
-	if suffix == "" {
-		return true
-	}
-
-	// The suffix must match the end of the path
-	remaining := filePath
-	if prefix != "" {
-		remaining = strings.TrimPrefix(filePath, prefix+"/")
-	}
-
-	// Try matching suffix against every possible tail
-	segments := strings.Split(remaining, "/")
-	for i := 0; i < len(segments); i++ {
-		tail := strings.Join(segments[i:], "/")
-		if matched, _ := filepath.Match(suffix, tail); matched {
-			return true
-		}
-		// Also try matching just the last part
-		if matched, _ := filepath.Match(suffix, segments[len(segments)-1]); matched {
+	// If pattern has no /, it matches anywhere in the path (CODEOWNERS semantics)
+	if !strings.Contains(pattern, "/") && !strings.Contains(pattern, "**") {
+		if matched, _ := doublestar.Match(pattern, filepath.Base(filePath)); matched {
 			return true
 		}
 	}

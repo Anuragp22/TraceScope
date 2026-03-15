@@ -153,7 +153,10 @@ func findExistingComment(prNum string) (string, error) {
 }
 
 func updateComment(commentID, body string) error {
-	payload, _ := json.Marshal(map[string]string{"body": body})
+	payload, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return fmt.Errorf("marshaling payload: %w", err)
+	}
 	cmd := exec.Command("gh", "api", "-X", "PATCH",
 		fmt.Sprintf("repos/{owner}/{repo}/issues/comments/%s", commentID),
 		"--input", "-")
