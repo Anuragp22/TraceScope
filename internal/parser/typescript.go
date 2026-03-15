@@ -102,14 +102,60 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 			}
 		}
 		if name != "" {
+			var bases []string
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				if child.Type() == "class_heritage" {
+					for j := 0; j < int(child.ChildCount()); j++ {
+						gc := child.Child(j)
+						if gc.Type() == "extends_clause" || gc.Type() == "implements_clause" {
+							for k := 0; k < int(gc.ChildCount()); k++ {
+								tc := gc.Child(k)
+								if tc.Type() == "type_identifier" || tc.Type() == "identifier" {
+									bases = append(bases, tc.Content(source))
+								}
+							}
+						}
+						// Direct identifier in heritage (JS-style)
+						if gc.Type() == "identifier" || gc.Type() == "type_identifier" {
+							bases = append(bases, gc.Content(source))
+						}
+					}
+				}
+			}
 			result.Classes = append(result.Classes, ClassDef{
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
 				IsExport:  isJSExported(node),
 				Kind:      "class",
+				Bases:     bases,
 			})
+			// Recurse into class body for methods with class context
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				if child.Type() == "class_body" {
+					for j := 0; j < int(child.ChildCount()); j++ {
+						gc := child.Child(j)
+						if gc.Type() == "method_definition" {
+							mName := findChildContent(gc, "property_identifier", source)
+							if mName != "" {
+								result.Functions = append(result.Functions, FunctionDef{
+									Name:      mName,
+									StartLine: int(gc.StartPoint().Row) + 1,
+									EndLine:   int(gc.EndPoint().Row) + 1,
+									IsExport:  true,
+									Receiver:  name,
+								})
+							}
+						} else {
+							p.walk(gc, source, result)
+						}
+					}
+				}
+			}
 		}
+		return
 
 	case "interface_declaration":
 		name := ""

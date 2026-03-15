@@ -69,15 +69,26 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 						continue
 					}
 					kind := ""
+					var bases []string
 					switch iface := ts.Type.(type) {
 					case *ast.StructType:
 						kind = "struct"
+						// Extract embedded (anonymous) fields as bases
+						if iface.Fields != nil {
+							for _, field := range iface.Fields.List {
+								if len(field.Names) == 0 {
+									if name := typeExprName(field.Type); name != "" {
+										bases = append(bases, name)
+									}
+								}
+							}
+						}
 					case *ast.InterfaceType:
 						kind = "interface"
-						// Extract interface method signatures as functions
 						if iface.Methods != nil {
 							for _, method := range iface.Methods.List {
 								if len(method.Names) > 0 {
+									// Named method signature
 									if _, ok := method.Type.(*ast.FuncType); ok {
 										mName := method.Names[0].Name
 										result.Functions = append(result.Functions, FunctionDef{
@@ -87,6 +98,11 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 											Receiver:  ts.Name.Name,
 											IsExport:  ast.IsExported(mName),
 										})
+									}
+								} else {
+									// Embedded interface (anonymous type reference)
+									if name := typeExprName(method.Type); name != "" {
+										bases = append(bases, name)
 									}
 								}
 							}
@@ -99,6 +115,7 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 							EndLine:   fset.Position(ts.End()).Line,
 							IsExport:  ast.IsExported(ts.Name.Name),
 							Kind:      kind,
+							Bases:     bases,
 						})
 					}
 				}
@@ -153,8 +170,25 @@ func receiverTypeName(expr ast.Expr) string {
 			return ident.Name
 		}
 	case *ast.SelectorExpr:
-		// Cross-package receiver: *pkg.TypeName → return "TypeName"
 		return t.Sel.Name
+	}
+	return ""
+}
+
+// typeExprName extracts the simple type name from a type expression.
+// Handles *Foo, pkg.Foo, *pkg.Foo, etc.
+func typeExprName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return typeExprName(t.X)
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	case *ast.IndexExpr:
+		return typeExprName(t.X)
+	case *ast.IndexListExpr:
+		return typeExprName(t.X)
 	}
 	return ""
 }

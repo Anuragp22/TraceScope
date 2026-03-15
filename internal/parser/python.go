@@ -75,12 +75,27 @@ func (p *PythonParser) walk(node *sitter.Node, source []byte, result *FileResult
 	case "class_definition":
 		name := findChildContent(node, "identifier", source)
 		if name != "" {
+			var bases []string
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				if child.Type() == "argument_list" {
+					for j := 0; j < int(child.ChildCount()); j++ {
+						arg := child.Child(j)
+						if arg.Type() == "identifier" {
+							bases = append(bases, arg.Content(source))
+						} else if arg.Type() == "attribute" {
+							bases = append(bases, arg.Content(source))
+						}
+					}
+				}
+			}
 			result.Classes = append(result.Classes, ClassDef{
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
 				IsExport:  !strings.HasPrefix(name, "_"),
 				Kind:      "class",
+				Bases:     bases,
 			})
 			// Recurse with class context
 			for i := 0; i < int(node.ChildCount()); i++ {

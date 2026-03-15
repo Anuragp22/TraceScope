@@ -31,19 +31,21 @@ type ClassDef struct {
 	StartLine int
 	EndLine   int
 	IsExport  bool
-	Kind      string // "class", "struct", "interface"
+	Kind      string   // "class", "struct", "interface", "type"
+	Bases     []string // parent classes, embedded structs, extended interfaces
 }
 
 // FileResult holds all parsed data from a single file.
 type FileResult struct {
-	FilePath   string
-	Language   Language
-	Package    string // Go package name
-	Functions  []FunctionDef
-	Calls      []FunctionCall
-	Imports    []Import
-	Classes    []ClassDef
-	IsTestFile bool
+	FilePath    string
+	Language    Language
+	Package     string // Go package name
+	Functions   []FunctionDef
+	Calls       []FunctionCall
+	Imports     []Import
+	Classes     []ClassDef
+	IsTestFile  bool
+	ContentHash string // SHA-256 hex of source bytes
 }
 
 // LanguageParser is the interface all language parsers must implement.

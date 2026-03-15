@@ -86,23 +86,61 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 	case "class_declaration":
 		name := findChildContent(node, "identifier", source)
 		if name != "" {
+			var bases []string
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				if child.Type() == "class_heritage" {
+					for j := 0; j < int(child.ChildCount()); j++ {
+						gc := child.Child(j)
+						if gc.Type() == "identifier" || gc.Type() == "type_identifier" {
+							bases = append(bases, gc.Content(source))
+						}
+					}
+				}
+			}
 			result.Classes = append(result.Classes, ClassDef{
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
 				IsExport:  isJSExported(node),
 				Kind:      "class",
+				Bases:     bases,
 			})
+			// Recurse with class context for methods
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				if child.Type() == "class_body" {
+					for j := 0; j < int(child.ChildCount()); j++ {
+						gc := child.Child(j)
+						if gc.Type() == "method_definition" {
+							mName := findChildContent(gc, "property_identifier", source)
+							if mName != "" {
+								result.Functions = append(result.Functions, FunctionDef{
+									Name:      mName,
+									StartLine: int(gc.StartPoint().Row) + 1,
+									EndLine:   int(gc.EndPoint().Row) + 1,
+									IsExport:  true,
+									Receiver:  name,
+								})
+							}
+						} else {
+							p.walk(gc, source, result)
+						}
+					}
+				}
+			}
 		}
+		return
 
 	case "method_definition":
+		// Standalone method (not inside a class we're tracking)
 		name := findChildContent(node, "property_identifier", source)
 		if name != "" {
 			result.Functions = append(result.Functions, FunctionDef{
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  true, // methods are accessible via class
+				IsExport:  true,
 			})
 		}
 
