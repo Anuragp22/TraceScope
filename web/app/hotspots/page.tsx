@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useState } from "react";
+import { Info } from "lucide-react";
 
 function riskBadge(risk: string) {
   const styles = {
@@ -38,7 +39,7 @@ export default function HotspotsPage() {
         <div>
           <h1 className="text-2xl font-bold">Hotspots</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Functions ranked by coupling score (inbound x outbound)
+            The riskiest functions in your codebase — most likely to cause breakage when changed
           </p>
         </div>
         <select
@@ -62,6 +63,38 @@ export default function HotspotsPage() {
               Showing {topN} of {data.total} functions with connections
             </p>
           )}
+          {/* Column explanations */}
+          <div className="bg-card/50 border border-border rounded-lg p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+            <div>
+              <p className="font-medium text-foreground flex items-center gap-1 mb-1">
+                <Info className="h-3 w-3 text-muted-foreground" /> Inbound
+              </p>
+              <p className="text-muted-foreground">How many other functions call this one. Higher = more things break if you change it.</p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground flex items-center gap-1 mb-1">
+                <Info className="h-3 w-3 text-muted-foreground" /> Outbound
+              </p>
+              <p className="text-muted-foreground">How many functions this one calls. Higher = more dependencies it relies on.</p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground flex items-center gap-1 mb-1">
+                <Info className="h-3 w-3 text-muted-foreground" /> Coupling
+              </p>
+              <p className="text-muted-foreground">Inbound × Outbound. High coupling = the function is a critical nexus in your code.</p>
+            </div>
+            <div>
+              <p className="font-medium text-foreground flex items-center gap-1 mb-1">
+                <Info className="h-3 w-3 text-muted-foreground" /> Risk
+              </p>
+              <p className="text-muted-foreground">
+                <span className="text-red-500">HIGH</span> = 10+ callers,{" "}
+                <span className="text-yellow-500">MEDIUM</span> = 5-9,{" "}
+                <span className="text-green-500">LOW</span> = under 5.
+              </p>
+            </div>
+          </div>
+
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
