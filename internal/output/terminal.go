@@ -11,16 +11,19 @@ import (
 )
 
 var (
-	bold    = color.New(color.Bold)
-	cyan    = color.New(color.FgCyan, color.Bold)
-	red     = color.New(color.FgRed, color.Bold)
-	yellow  = color.New(color.FgYellow, color.Bold)
-	green   = color.New(color.FgGreen, color.Bold)
-	dim     = color.New(color.Faint)
+	bold   = color.New(color.Bold)
+	cyan   = color.New(color.FgCyan, color.Bold)
+	red    = color.New(color.FgRed, color.Bold)
+	yellow = color.New(color.FgYellow, color.Bold)
+	green  = color.New(color.FgGreen, color.Bold)
+	dim    = color.New(color.Faint)
 )
 
 // PrintAnalysis outputs the blast radius analysis to the terminal.
 func PrintAnalysis(result *analyzer.AnalysisResult) {
+	// Cache cwd once instead of calling os.Getwd() per function
+	cwd, _ := os.Getwd()
+
 	fmt.Fprintln(os.Stderr)
 	cyan.Fprintln(os.Stderr, "TraceScope — Blast Radius Analysis")
 	fmt.Fprintln(os.Stderr)
@@ -41,7 +44,7 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 	// Changed functions
 	bold.Fprintf(os.Stderr, "  Changed Functions (%d):\n", len(result.ChangedFunctions))
 	for _, cf := range result.ChangedFunctions {
-		relPath := shortPath(cf.FilePath)
+		relPath := shortPathCwd(cf.FilePath, cwd)
 		fmt.Fprintf(os.Stderr, "    %s ", cf.Node.Name)
 		dim.Fprintf(os.Stderr, "(%s:%d)\n", relPath, cf.Node.StartLine)
 	}
@@ -55,19 +58,19 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 
 	if len(high) > 0 {
 		red.Fprintf(os.Stderr, "    HIGH RISK (%d):\n", len(high))
-		printAffected(high)
+		printAffected(high, cwd)
 		fmt.Fprintln(os.Stderr)
 	}
 
 	if len(medium) > 0 {
 		yellow.Fprintf(os.Stderr, "    MEDIUM RISK (%d):\n", len(medium))
-		printAffected(medium)
+		printAffected(medium, cwd)
 		fmt.Fprintln(os.Stderr)
 	}
 
 	if len(low) > 0 {
 		green.Fprintf(os.Stderr, "    LOW RISK (%d):\n", len(low))
-		printAffected(low)
+		printAffected(low, cwd)
 		fmt.Fprintln(os.Stderr)
 	}
 
@@ -103,31 +106,33 @@ func groupByRisk(funcs []analyzer.AffectedFunction) (high, medium, low []analyze
 		}
 	}
 
-	// Sort each group by caller count descending
-	sortByCallers := func(s []analyzer.AffectedFunction) {
+	// Sort each group by caller count descending, then name for stability
+	sortGroup := func(s []analyzer.AffectedFunction) {
 		sort.Slice(s, func(i, j int) bool {
-			return s[i].CallerCount > s[j].CallerCount
+			if s[i].CallerCount != s[j].CallerCount {
+				return s[i].CallerCount > s[j].CallerCount
+			}
+			return s[i].Node.Name < s[j].Node.Name
 		})
 	}
-	sortByCallers(high)
-	sortByCallers(medium)
-	sortByCallers(low)
+	sortGroup(high)
+	sortGroup(medium)
+	sortGroup(low)
 
 	return
 }
 
-func printAffected(funcs []analyzer.AffectedFunction) {
+func printAffected(funcs []analyzer.AffectedFunction, cwd string) {
 	for _, f := range funcs {
-		relPath := shortPath(f.Node.FilePath)
+		relPath := shortPathCwd(f.Node.FilePath, cwd)
 		fmt.Fprintf(os.Stderr, "      %s ", f.Node.Name)
 		dim.Fprintf(os.Stderr, "(%s:%d) ", relPath, f.Node.StartLine)
 		dim.Fprintf(os.Stderr, "[%d callers, depth %d — %s]\n", f.CallerCount, f.Depth, f.Reason)
 	}
 }
 
-func shortPath(p string) string {
-	cwd, err := os.Getwd()
-	if err != nil {
+func shortPathCwd(p string, cwd string) string {
+	if cwd == "" {
 		return p
 	}
 	rel, err := filepath.Rel(cwd, p)

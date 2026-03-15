@@ -22,10 +22,14 @@ var skipDirs = map[string]bool{
 	".git":         true,
 	"vendor":       true,
 	"__pycache__":  true,
-	".tracescope":  true,
 	"dist":         true,
 	"build":        true,
 	".next":        true,
+}
+
+// allowDotDirs are dot-prefixed directories that should NOT be skipped.
+var allowDotDirs = map[string]bool{
+	".github": true,
 }
 
 // extensionToLanguage maps file extensions to languages.
@@ -49,7 +53,11 @@ func WalkDirectory(root string) (map[Language][]string, error) {
 
 		if info.IsDir() {
 			name := info.Name()
-			if skipDirs[name] || strings.HasPrefix(name, ".") && name != "." {
+			if skipDirs[name] {
+				return filepath.SkipDir
+			}
+			// Skip dot-dirs unless in the allow list
+			if strings.HasPrefix(name, ".") && name != "." && !allowDotDirs[name] {
 				return filepath.SkipDir
 			}
 			return nil
@@ -57,10 +65,7 @@ func WalkDirectory(root string) (map[Language][]string, error) {
 
 		ext := filepath.Ext(path)
 		if lang, ok := extensionToLanguage[ext]; ok {
-			// Skip test helpers, generated files, etc.
-			if strings.HasSuffix(path, "_test.go") {
-				// Still include test files — useful for test detection
-			}
+			// Still include test files — useful for test detection
 			result[lang] = append(result[lang], path)
 		}
 

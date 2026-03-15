@@ -73,6 +73,9 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	builder := graph.NewBuilder()
 	graphData := builder.Build(results)
 
+	// Store the project root path for path normalization
+	graphData.RootPath = absPath
+
 	nodeCount := len(graphData.Nodes)
 	edgeCount := len(graphData.Edges)
 	fmt.Fprintf(os.Stderr, "  Built graph: %d nodes, %d edges\n", nodeCount, edgeCount)
