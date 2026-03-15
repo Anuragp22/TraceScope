@@ -2,11 +2,46 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api, type AnalysisResult } from "@/lib/api";
-import { github, type GitHubRepo, type GitHubPR } from "@/lib/github";
 import { useSession } from "@/lib/auth-client";
 import { useState } from "react";
-import { AlertTriangle, FileCode, Braces, Shield, GitBranch, Github, LogIn } from "lucide-react";
+import { AlertTriangle, FileCode, Braces, Shield, Github, LogIn } from "lucide-react";
 import { signIn } from "@/lib/auth-client";
+
+interface GitHubRepo {
+  id: number;
+  full_name: string;
+  name: string;
+  owner: { login: string };
+  private: boolean;
+}
+
+interface GitHubPR {
+  number: number;
+  title: string;
+  head: { ref: string };
+  base: { ref: string };
+  user: { login: string };
+}
+
+// Proxy GitHub API calls through our server-side route
+const githubProxy = {
+  getRepos: async (): Promise<GitHubRepo[]> => {
+    const res = await fetch("/api/github?action=repos");
+    if (!res.ok) throw new Error((await res.json()).error);
+    return res.json();
+  },
+  getPRs: async (owner: string, repo: string): Promise<GitHubPR[]> => {
+    const res = await fetch(`/api/github?action=prs&owner=${owner}&repo=${repo}`);
+    if (!res.ok) throw new Error((await res.json()).error);
+    return res.json();
+  },
+  getDiff: async (owner: string, repo: string, pr: number): Promise<string> => {
+    const res = await fetch(`/api/github?action=diff&owner=${owner}&repo=${repo}&pr=${pr}`);
+    if (!res.ok) throw new Error((await res.json()).error);
+    const data = await res.json();
+    return data.diff;
+  },
+};
 
 function riskBadge(risk: string) {
   const styles = {
@@ -121,14 +156,13 @@ export default function AnalyzePage() {
   const [selectedPR, setSelectedPR] = useState<number | null>(null);
   const [diff, setDiff] = useState("");
 
-  const accessToken = (session as any)?.session?.accessToken || "";
   const isLoggedIn = !!session?.user;
 
-  // Fetch repos
+  // Fetch repos via server-side proxy
   const { data: repos } = useQuery({
-    queryKey: ["github-repos", accessToken],
-    queryFn: () => github.getRepos(accessToken),
-    enabled: isLoggedIn && !!accessToken,
+    queryKey: ["github-repos"],
+    queryFn: () => githubProxy.getRepos(),
+    enabled: isLoggedIn,
   });
 
   // Parse owner/repo
@@ -137,14 +171,14 @@ export default function AnalyzePage() {
   // Fetch PRs for selected repo
   const { data: prs, isLoading: prsLoading } = useQuery({
     queryKey: ["github-prs", selectedRepo],
-    queryFn: () => github.getPRs(accessToken, repoOwner, repoName),
-    enabled: !!selectedRepo && !!accessToken,
+    queryFn: () => githubProxy.getPRs(repoOwner, repoName),
+    enabled: !!selectedRepo && isLoggedIn,
   });
 
   // Analyze PR mutation
   const prMutation = useMutation({
     mutationFn: async (prNumber: number) => {
-      const diffText = await github.getPRDiff(accessToken, repoOwner, repoName, prNumber);
+      const diffText = await githubProxy.getDiff(repoOwner, repoName, prNumber);
       return api.analyze(diffText);
     },
   });
