@@ -186,4 +186,51 @@ type Writer interface {
 	if result.Classes[0].Kind != "interface" {
 		t.Errorf("expected 'interface', got %q", result.Classes[0].Kind)
 	}
+
+	// Interface methods should be extracted as functions with receiver = interface name
+	methodNames := map[string]string{} // name → receiver
+	for _, f := range result.Functions {
+		methodNames[f.Name] = f.Receiver
+	}
+	if recv, ok := methodNames["Read"]; !ok || recv != "Reader" {
+		t.Errorf("expected Read method with receiver 'Reader', got receiver %q, found=%v", recv, ok)
+	}
+	if recv, ok := methodNames["Write"]; !ok || recv != "Writer" {
+		t.Errorf("expected Write method with receiver 'Writer', got receiver %q, found=%v", recv, ok)
+	}
+}
+
+func TestGoParser_InitFunction(t *testing.T) {
+	source := []byte(`package main
+
+func init() {
+	setup()
+}
+
+func main() {}
+`)
+	p := NewGoParser()
+	result, err := p.Parse("main.go", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	foundInit := false
+	for _, f := range result.Functions {
+		if f.Name == "init" {
+			foundInit = true
+			if !f.IsInit {
+				t.Error("init() should have IsInit=true")
+			}
+			if f.IsExport {
+				t.Error("init() should not be exported")
+			}
+		}
+		if f.Name == "main" && f.IsInit {
+			t.Error("main() should not have IsInit=true")
+		}
+	}
+	if !foundInit {
+		t.Error("expected to find init() function")
+	}
 }
