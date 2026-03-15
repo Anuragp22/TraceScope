@@ -63,27 +63,30 @@ function shortPath(filePath: string) {
 }
 
 function ResultsView({ result }: { result: AnalysisResult }) {
-  const high = result.affected_functions.filter((f) => f.risk === "HIGH");
-  const medium = result.affected_functions.filter((f) => f.risk === "MEDIUM");
-  const low = result.affected_functions.filter((f) => f.risk === "LOW");
+  const affected = result.affected_functions || [];
+  const changed = result.changed_functions || [];
+  const changedFiles = result.changed_files || [];
+  const high = affected.filter((f) => f.risk === "HIGH");
+  const medium = affected.filter((f) => f.risk === "MEDIUM");
+  const low = affected.filter((f) => f.risk === "LOW");
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-card border border-border rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold">{result.changed_files.length}</p>
+          <p className="text-2xl font-bold">{changedFiles.length}</p>
           <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
             <FileCode className="h-3 w-3" /> Changed Files
           </p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold">{result.changed_functions.length}</p>
+          <p className="text-2xl font-bold">{changed.length}</p>
           <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
             <Braces className="h-3 w-3" /> Changed Functions
           </p>
         </div>
         <div className="bg-card border border-border rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold">{result.affected_functions.length}</p>
+          <p className="text-2xl font-bold">{affected.length}</p>
           <p className="text-sm text-muted-foreground flex items-center justify-center gap-1">
             <AlertTriangle className="h-3 w-3" /> Affected
           </p>
@@ -93,7 +96,7 @@ function ResultsView({ result }: { result: AnalysisResult }) {
             {high.length > 0 && <span className="text-red-500 font-bold">{high.length}H</span>}
             {medium.length > 0 && <span className="text-yellow-500 font-bold">{medium.length}M</span>}
             {low.length > 0 && <span className="text-green-500 font-bold">{low.length}L</span>}
-            {result.affected_functions.length === 0 && <span className="text-green-500 font-bold">Clean</span>}
+            {affected.length === 0 && <span className="text-green-500 font-bold">Clean</span>}
           </div>
           <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
             <Shield className="h-3 w-3" /> Risk
@@ -104,7 +107,7 @@ function ResultsView({ result }: { result: AnalysisResult }) {
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="font-medium mb-3">Changed Files</h3>
         <div className="space-y-1">
-          {result.changed_files.map((f) => (
+          {changedFiles.map((f) => (
             <div key={f.path} className="text-sm font-mono text-muted-foreground flex items-center gap-2">
               <span>{f.path}</span>
               {f.is_new && <span className="text-green-500 text-xs">[NEW]</span>}
@@ -114,10 +117,10 @@ function ResultsView({ result }: { result: AnalysisResult }) {
         </div>
       </div>
 
-      {result.affected_functions.length > 0 && (
+      {affected.length > 0 && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
-            <h3 className="font-medium">Blast Radius ({result.affected_functions.length} affected)</h3>
+            <h3 className="font-medium">Blast Radius ({affected.length} affected)</h3>
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -130,7 +133,7 @@ function ResultsView({ result }: { result: AnalysisResult }) {
               </tr>
             </thead>
             <tbody>
-              {result.affected_functions.map((af) => (
+              {affected.map((af) => (
                 <tr key={af.node.id} className="border-b border-border/50 hover:bg-accent/30">
                   <td className="px-4 py-2 font-mono font-medium">{af.node.name}</td>
                   <td className="px-4 py-2 text-muted-foreground font-mono text-xs">
