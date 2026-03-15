@@ -64,16 +64,15 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	r := mux.NewRouter()
 
-	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/graph", s.handleGraph).Methods("GET")
-	api.HandleFunc("/hotspots", s.handleHotspots).Methods("GET")
-	api.HandleFunc("/analyze", s.handleAnalyze).Methods("POST")
-	api.HandleFunc("/analyze/branches", s.handleBranches).Methods("GET")
-	api.HandleFunc("/analyze/diff", s.handleGitDiff).Methods("GET")
-	api.HandleFunc("/why", s.handleWhy).Methods("GET")
-	api.HandleFunc("/stats", s.handleStats).Methods("GET")
-	api.HandleFunc("/reload", s.handleReload).Methods("POST")
-	api.HandleFunc("/ws", s.handleWebSocket)
+	r.HandleFunc("/api/graph", s.handleGraph).Methods("GET")
+	r.HandleFunc("/api/hotspots", s.handleHotspots).Methods("GET")
+	r.HandleFunc("/api/analyze/branches", s.handleBranches).Methods("GET")
+	r.HandleFunc("/api/analyze/diff", s.handleGitDiff).Methods("GET")
+	r.HandleFunc("/api/analyze", s.handleAnalyze).Methods("POST")
+	r.HandleFunc("/api/why", s.handleWhy).Methods("GET")
+	r.HandleFunc("/api/stats", s.handleStats).Methods("GET")
+	r.HandleFunc("/api/reload", s.handleReload).Methods("POST")
+	r.HandleFunc("/api/ws", s.handleWebSocket)
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3001"},
