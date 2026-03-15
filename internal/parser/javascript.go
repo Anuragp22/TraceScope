@@ -3,7 +3,7 @@ package parser
 import (
 	"context"
 	"strings"
-	"unicode"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -21,9 +21,14 @@ func (p *JavaScriptParser) Language() Language { return LangJavaScript }
 
 func (p *JavaScriptParser) Parse(filePath string, source []byte) (*FileResult, error) {
 	parser := sitter.NewParser()
+	defer parser.Close()
+
 	parser.SetLanguage(p.lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, source)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tree, err := parser.ParseCtx(ctx, nil, source)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +213,8 @@ func trimQuotes(s string) string {
 	s = strings.TrimSuffix(s, "\"")
 	s = strings.TrimPrefix(s, "'")
 	s = strings.TrimSuffix(s, "'")
+	s = strings.TrimPrefix(s, "`")
+	s = strings.TrimSuffix(s, "`")
 	return s
 }
 
@@ -225,11 +232,4 @@ func isJSTestFile(path string) bool {
 		strings.Contains(lower, ".spec.") ||
 		strings.Contains(lower, "__tests__") ||
 		strings.Contains(lower, "_test.")
-}
-
-func isJSPublicName(name string) bool {
-	if len(name) == 0 {
-		return false
-	}
-	return unicode.IsUpper(rune(name[0]))
 }

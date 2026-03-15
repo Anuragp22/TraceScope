@@ -2,7 +2,9 @@ package parser
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
@@ -20,9 +22,14 @@ func (p *PythonParser) Language() Language { return LangPython }
 
 func (p *PythonParser) Parse(filePath string, source []byte) (*FileResult, error) {
 	parser := sitter.NewParser()
+	defer parser.Close()
+
 	parser.SetLanguage(p.lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, source)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tree, err := parser.ParseCtx(ctx, nil, source)
 	if err != nil {
 		return nil, err
 	}
@@ -112,16 +119,31 @@ func (p *PythonParser) walk(node *sitter.Node, source []byte, result *FileResult
 
 	case "import_from_statement":
 		module := ""
+		dots := ""
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
-			if child.Type() == "dotted_name" {
-				module = child.Content(source)
-				break
+			switch child.Type() {
+			case "dotted_name":
+				if module == "" {
+					module = child.Content(source)
+				}
+			case "relative_import":
+				// Handle relative imports: from .foo import bar, from ..foo import bar
+				for j := 0; j < int(child.ChildCount()); j++ {
+					gc := child.Child(j)
+					switch gc.Type() {
+					case "import_prefix":
+						dots = strings.TrimRight(gc.Content(source), " ")
+					case "dotted_name":
+						module = gc.Content(source)
+					}
+				}
 			}
 		}
-		if module != "" {
+		path := dots + module
+		if path != "" {
 			result.Imports = append(result.Imports, Import{
-				Path: module,
+				Path: path,
 				Line: int(node.StartPoint().Row) + 1,
 			})
 		}
@@ -147,19 +169,18 @@ func (p *PythonParser) parseCallExpr(node *sitter.Node, source []byte, result *F
 			Line: line,
 		})
 	case "attribute":
-		obj := findChildContent(funcNode, "identifier", source)
-		attr := ""
-		for i := 0; i < int(funcNode.ChildCount()); i++ {
-			child := funcNode.Child(i)
-			if child.Type() == "identifier" && child.Content(source) != obj {
-				attr = child.Content(source)
-			}
-		}
-		if attr != "" {
+		// Recursively flatten chained attribute access: a.b.c() → receiver="a.b", name="c"
+		parts := flattenAttribute(funcNode, source)
+		if len(parts) >= 2 {
 			result.Calls = append(result.Calls, FunctionCall{
-				Name:     attr,
+				Name:     parts[len(parts)-1],
 				Line:     line,
-				Receiver: obj,
+				Receiver: strings.Join(parts[:len(parts)-1], "."),
+			})
+		} else if len(parts) == 1 {
+			result.Calls = append(result.Calls, FunctionCall{
+				Name: parts[0],
+				Line: line,
 			})
 		}
 	}
@@ -168,6 +189,21 @@ func (p *PythonParser) parseCallExpr(node *sitter.Node, source []byte, result *F
 	for i := 1; i < int(node.ChildCount()); i++ {
 		p.walkForPyCalls(node.Child(i), source, result)
 	}
+}
+
+// flattenAttribute recursively flattens nested attribute nodes into a list of names.
+// e.g., a.b.c → ["a", "b", "c"]
+func flattenAttribute(node *sitter.Node, source []byte) []string {
+	if node.Type() == "identifier" {
+		return []string{node.Content(source)}
+	}
+	if node.Type() == "attribute" && node.ChildCount() >= 3 {
+		objNode := node.Child(0)
+		attrNode := node.Child(int(node.ChildCount()) - 1)
+		objParts := flattenAttribute(objNode, source)
+		return append(objParts, attrNode.Content(source))
+	}
+	return []string{node.Content(source)}
 }
 
 func (p *PythonParser) walkForPyCalls(node *sitter.Node, source []byte, result *FileResult) {
@@ -181,9 +217,12 @@ func (p *PythonParser) walkForPyCalls(node *sitter.Node, source []byte, result *
 }
 
 func isPythonTestFile(path string) bool {
-	lower := strings.ToLower(path)
-	return strings.Contains(lower, "test_") ||
-		strings.Contains(lower, "_test.py") ||
-		strings.Contains(lower, "tests/") ||
-		strings.Contains(lower, "tests\\")
+	base := strings.ToLower(filepath.Base(path))
+	if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") {
+		return true
+	}
+	// Check if file is in a tests/ or test/ directory
+	dir := strings.ToLower(filepath.ToSlash(filepath.Dir(path)))
+	return strings.HasSuffix(dir, "/tests") || strings.HasSuffix(dir, "/test") ||
+		strings.Contains(dir, "/tests/") || strings.Contains(dir, "/test/")
 }

@@ -3,26 +3,42 @@ package parser
 import (
 	"context"
 	"strings"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/typescript/tsx"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 )
 
 type TypeScriptParser struct {
-	lang *sitter.Language
+	tsLang  *sitter.Language
+	tsxLang *sitter.Language
 }
 
 func NewTypeScriptParser() *TypeScriptParser {
-	return &TypeScriptParser{lang: typescript.GetLanguage()}
+	return &TypeScriptParser{
+		tsLang:  typescript.GetLanguage(),
+		tsxLang: tsx.GetLanguage(),
+	}
 }
 
 func (p *TypeScriptParser) Language() Language { return LangTypeScript }
 
 func (p *TypeScriptParser) Parse(filePath string, source []byte) (*FileResult, error) {
 	parser := sitter.NewParser()
-	parser.SetLanguage(p.lang)
+	defer parser.Close()
 
-	tree, err := parser.ParseCtx(context.Background(), nil, source)
+	// Use TSX grammar for .tsx files
+	if strings.HasSuffix(filePath, ".tsx") {
+		parser.SetLanguage(p.tsxLang)
+	} else {
+		parser.SetLanguage(p.tsLang)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tree, err := parser.ParseCtx(ctx, nil, source)
 	if err != nil {
 		return nil, err
 	}
