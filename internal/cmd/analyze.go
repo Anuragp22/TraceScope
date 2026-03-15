@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anurag/tracescope/internal/analyzer"
 	diffpkg "github.com/anurag/tracescope/internal/diff"
-	"github.com/anurag/tracescope/internal/graph"
 	"github.com/anurag/tracescope/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -43,6 +41,26 @@ func init() {
 }
 
 func runAnalyze(cmd *cobra.Command, args []string) error {
+	// Merge config defaults with CLI flags (CLI takes precedence)
+	if !cmd.Flags().Changed("depth") && cfg.MaxDepth > 0 {
+		analysisDepth = cfg.MaxDepth
+	}
+	if !cmd.Flags().Changed("format") && cfg.Format != "" {
+		outputFormat = cfg.Format
+	}
+	if !cmd.Flags().Changed("top") && cfg.TopN > 0 {
+		topN = cfg.TopN
+	}
+	// Merge ignore patterns: config + CLI (union)
+	if len(cfg.Ignore) > 0 {
+		configIgnore := strings.Join(cfg.Ignore, ",")
+		if ignoreGlobs != "" {
+			ignoreGlobs = ignoreGlobs + "," + configIgnore
+		} else {
+			ignoreGlobs = configIgnore
+		}
+	}
+
 	// Read diff from file or stdin
 	var diffData []byte
 	var err error
@@ -85,16 +103,18 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load graph
-	cwd, _ := os.Getwd()
-	graphFile := filepath.Join(cwd, ".tracescope", "graph.json")
-	store := graph.NewStore()
-	graphData, err := store.Load(graphFile)
+	graphData, err := loadGraph()
 	if err != nil {
 		return fmt.Errorf("loading graph (run 'tracescope index' first): %w", err)
 	}
 
 	// Run blast radius analysis
-	ba := analyzer.NewBlastRadiusAnalyzer(graphData, analysisDepth)
+	scorer := &analyzer.RiskScorer{
+		HighCallers:         cfg.Risk.HighCallers,
+		HighExportedCallers: cfg.Risk.HighExportedCallers,
+		MediumCallers:       cfg.Risk.MediumCallers,
+	}
+	ba := analyzer.NewBlastRadiusAnalyzer(graphData, analysisDepth, scorer)
 	result := ba.Analyze(changedFiles)
 
 	// Apply --top N pagination
@@ -128,49 +148,4 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// filterIgnoredFiles removes files matching any of the comma-separated glob patterns.
-func filterIgnoredFiles(files []diffpkg.ChangedFile, patterns string) []diffpkg.ChangedFile {
-	globs := strings.Split(patterns, ",")
-	for i := range globs {
-		globs[i] = strings.TrimSpace(globs[i])
-	}
-
-	var result []diffpkg.ChangedFile
-	for _, f := range files {
-		if matchesAnyGlob(f.Path, globs) {
-			continue
-		}
-		result = append(result, f)
-	}
-	return result
-}
-
-// matchesAnyGlob checks if a path matches any of the glob patterns.
-// Supports ** as a prefix match (e.g., "vendor/**" matches "vendor/foo/bar.go").
-func matchesAnyGlob(path string, globs []string) bool {
-	normalized := filepath.ToSlash(path)
-	for _, g := range globs {
-		if g == "" {
-			continue
-		}
-		// Handle ** patterns as prefix match
-		if strings.HasSuffix(g, "/**") {
-			prefix := strings.TrimSuffix(g, "/**")
-			if strings.HasPrefix(normalized, prefix+"/") || normalized == prefix {
-				return true
-			}
-			continue
-		}
-		// Standard glob match on the filename
-		if matched, _ := filepath.Match(g, filepath.Base(normalized)); matched {
-			return true
-		}
-		// Also try matching against the full path
-		if matched, _ := filepath.Match(g, normalized); matched {
-			return true
-		}
-	}
-	return false
 }
