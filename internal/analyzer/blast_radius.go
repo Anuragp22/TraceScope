@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/anurag/tracescope/internal/diff"
@@ -18,21 +19,47 @@ const (
 
 // AffectedFunction is a function in the blast radius with its risk assessment.
 type AffectedFunction struct {
-	Node        *graph.Node
-	Depth       int
-	Risk        RiskLevel
-	CallerCount int
-	Reason      string
+	Node        *graph.Node `json:"node"`
+	Depth       int         `json:"depth"`
+	Risk        RiskLevel   `json:"risk"`
+	CallerCount int         `json:"caller_count"`
+	Reason      string      `json:"reason"`
 }
 
 // AnalysisResult holds the complete blast radius analysis.
 type AnalysisResult struct {
-	ChangedFunctions  []ChangedFunction
-	AffectedFunctions []AffectedFunction
-	ChangedFiles      []diff.ChangedFile
-	TotalNodes        int
-	TotalEdges        int
-	MaxDepth          int
+	ChangedFunctions  []ChangedFunction  `json:"changed_functions"`
+	AffectedFunctions []AffectedFunction `json:"affected_functions"`
+	ChangedFiles      []diff.ChangedFile `json:"changed_files"`
+	TotalNodes        int                `json:"total_nodes"`
+	TotalEdges        int                `json:"total_edges"`
+	MaxDepth          int                `json:"max_depth"`
+	TotalAffected     int                `json:"total_affected,omitempty"`
+	TopN              int                `json:"top_n,omitempty"`
+}
+
+// RiskExitError is returned when the analysis completes but risk was found.
+type RiskExitError struct {
+	Code int
+}
+
+func (e *RiskExitError) Error() string {
+	return fmt.Sprintf("risk exit code: %d", e.Code)
+}
+
+// HighestRiskExitCode returns 1 for HIGH, 2 for MEDIUM, 0 for LOW/none.
+func HighestRiskExitCode(result *AnalysisResult) int {
+	for _, af := range result.AffectedFunctions {
+		if af.Risk == RiskHigh {
+			return 1
+		}
+	}
+	for _, af := range result.AffectedFunctions {
+		if af.Risk == RiskMedium {
+			return 2
+		}
+	}
+	return 0
 }
 
 // BlastRadiusAnalyzer orchestrates the full analysis pipeline.

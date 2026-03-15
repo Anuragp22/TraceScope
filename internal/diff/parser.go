@@ -8,16 +8,16 @@ import (
 
 // ChangedFile represents a file modified in a diff with its changed line ranges.
 type ChangedFile struct {
-	Path       string
-	LineRanges []LineRange
-	IsNew      bool
-	IsDeleted  bool
+	Path       string      `json:"path"`
+	LineRanges []LineRange `json:"line_ranges"`
+	IsNew      bool        `json:"is_new,omitempty"`
+	IsDeleted  bool        `json:"is_deleted,omitempty"`
 }
 
 // LineRange represents a range of changed lines.
 type LineRange struct {
-	Start int
-	End   int
+	Start int `json:"start"`
+	End   int `json:"end"`
 }
 
 // ParseUnifiedDiff parses a unified diff and extracts changed files with line ranges.

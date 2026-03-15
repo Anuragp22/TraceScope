@@ -10,9 +10,9 @@ import (
 
 // ChangedFunction represents a function that was modified in the diff.
 type ChangedFunction struct {
-	NodeID   string
-	Node     *graph.Node
-	FilePath string
+	NodeID   string      `json:"node_id"`
+	Node     *graph.Node `json:"node"`
+	FilePath string      `json:"file_path"`
 }
 
 // MapDiffToFunctions finds which function nodes overlap with changed line ranges.
