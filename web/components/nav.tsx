@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, GitBranch, Network, Flame, Search } from "lucide-react";
+import { BarChart3, GitBranch, Network, Flame, Github, LogOut } from "lucide-react";
+import { signIn, signOut, useSession } from "@/lib/auth-client";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
@@ -13,12 +14,15 @@ const navItems = [
 
 export function Nav() {
   const pathname = usePathname();
+  const { data: session, isPending } = useSession();
 
   return (
     <nav className="w-56 border-r border-border bg-card flex flex-col h-screen shrink-0">
       <div className="p-4 border-b border-border">
         <Link href="/" className="flex items-center gap-2">
-          <Search className="h-5 w-5 text-primary" />
+          <div className="h-5 w-5 rounded bg-primary flex items-center justify-center">
+            <span className="text-primary-foreground text-xs font-bold">T</span>
+          </div>
           <span className="font-semibold text-lg">TraceScope</span>
         </Link>
       </div>
@@ -41,8 +45,38 @@ export function Nav() {
           );
         })}
       </div>
-      <div className="p-4 border-t border-border text-xs text-muted-foreground">
-        TraceScope v1.0
+      <div className="p-3 border-t border-border">
+        {isPending ? (
+          <div className="text-xs text-muted-foreground px-2">Loading...</div>
+        ) : session?.user ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 px-2">
+              {session.user.image && (
+                <img
+                  src={session.user.image}
+                  alt=""
+                  className="h-6 w-6 rounded-full"
+                />
+              )}
+              <span className="text-sm truncate">{session.user.name}</span>
+            </div>
+            <button
+              onClick={() => signOut()}
+              className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground w-full rounded-md hover:bg-accent/50"
+            >
+              <LogOut className="h-3 w-3" />
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => signIn.social({ provider: "github" })}
+            className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
+          >
+            <Github className="h-4 w-4" />
+            Sign in with GitHub
+          </button>
+        )}
       </div>
     </nav>
   );
