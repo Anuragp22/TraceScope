@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	start := time.Now()
 	bold := color.New(color.Bold)
 	cyan := color.New(color.FgCyan, color.Bold)
+	dim := color.New(color.Faint)
 
 	cyan.Fprintf(os.Stderr, "TraceScope")
 	fmt.Fprintf(os.Stderr, " — indexing %s\n\n", absPath)
@@ -57,38 +59,111 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "  Found %d files across %d languages\n", totalFiles, len(files))
 
-	// Step 2: Parse files
+	// Step 2: Check for incremental indexing
+	outDir := filepath.Join(absPath, ".tracescope")
+	graphFile := filepath.Join(outDir, "graph.json")
+	cacheFile := filepath.Join(outDir, "parse_cache.json")
+
+	store := graph.NewStore()
+	existingGraph, _ := store.Load(graphFile)
+	cache, _ := parser.LoadCache(cacheFile)
+
+	// Determine which files need re-parsing
+	var filesToParse map[parser.Language][]string
+	var cachedResults []*parser.FileResult
+	reParsed := 0
+	cached := 0
+
+	if existingGraph != nil && existingGraph.FileMetadata != nil && len(cache.Results) > 0 {
+		// Incremental mode
+		filesToParse = make(map[parser.Language][]string)
+		for lang, langFiles := range files {
+			for _, f := range langFiles {
+				meta, hasMeta := existingGraph.FileMetadata[f]
+				cachedResult, hasCached := cache.Results[f]
+
+				if hasMeta && hasCached {
+					// Check hash
+					source, err := os.ReadFile(f)
+					if err != nil {
+						filesToParse[lang] = append(filesToParse[lang], f)
+						reParsed++
+						continue
+					}
+					h := sha256.Sum256(source)
+					hash := fmt.Sprintf("%x", h)
+					if hash == meta.Hash {
+						cachedResults = append(cachedResults, cachedResult)
+						cached++
+						continue
+					}
+				}
+				filesToParse[lang] = append(filesToParse[lang], f)
+				reParsed++
+			}
+		}
+	} else {
+		// Full index mode
+		filesToParse = files
+		reParsed = totalFiles
+	}
+
+	// Step 3: Parse files (only changed ones)
 	log.Debug().Msg("parsing files")
 	registry := parser.NewRegistry()
-	results, errs := registry.ParseFiles(files)
+	freshResults, errs := registry.ParseFiles(filesToParse)
 	if len(errs) > 0 {
 		for _, e := range errs {
 			log.Warn().Err(e).Msg("parse error")
 		}
 	}
-	fmt.Fprintf(os.Stderr, "  Parsed %d files (%d errors)\n", len(results), len(errs))
 
-	// Step 3: Build graph
+	// Merge fresh + cached results
+	allResults := append(cachedResults, freshResults...)
+
+	if cached > 0 {
+		fmt.Fprintf(os.Stderr, "  Parsed %d files (%d cached, %d errors)\n", len(freshResults), cached, len(errs))
+	} else {
+		fmt.Fprintf(os.Stderr, "  Parsed %d files (%d errors)\n", len(allResults), len(errs))
+	}
+
+	// Step 4: Build graph from ALL results
 	log.Debug().Msg("building graph")
 	builder := graph.NewBuilder()
-	graphData := builder.Build(results)
-
-	// Store the project root path for path normalization
+	graphData := builder.Build(allResults)
 	graphData.RootPath = absPath
+
+	// Step 5: Update parse cache
+	newCache := parser.NewParseCache()
+	for _, r := range allResults {
+		newCache.Results[r.FilePath] = r
+	}
+	// Remove deleted files from cache
+	currentFiles := make(map[string]bool)
+	for _, langFiles := range files {
+		for _, f := range langFiles {
+			currentFiles[f] = true
+		}
+	}
+	for path := range newCache.Results {
+		if !currentFiles[path] {
+			delete(newCache.Results, path)
+		}
+	}
 
 	nodeCount := len(graphData.Nodes)
 	edgeCount := len(graphData.Edges)
 	fmt.Fprintf(os.Stderr, "  Built graph: %d nodes, %d edges\n", nodeCount, edgeCount)
 
-	// Step 4: Save graph
-	store := graph.NewStore()
-	outDir := filepath.Join(absPath, ".tracescope")
+	// Step 6: Save graph + cache
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
-	outFile := filepath.Join(outDir, "graph.json")
-	if err := store.Save(graphData, outFile); err != nil {
+	if err := store.Save(graphData, graphFile); err != nil {
 		return fmt.Errorf("saving graph: %w", err)
+	}
+	if err := parser.SaveCache(newCache, cacheFile); err != nil {
+		log.Warn().Err(err).Msg("failed to save parse cache")
 	}
 
 	elapsed := time.Since(start)
@@ -96,7 +171,6 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stderr)
 	bold.Fprintf(os.Stderr, "  Stats:\n")
 
-	// Count by node type
 	typeCounts := map[graph.NodeType]int{}
 	for _, n := range graphData.Nodes {
 		typeCounts[n.Type]++
@@ -113,7 +187,12 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "    %-12s %d\n", string(t)+":", c)
 	}
 
-	fmt.Fprintf(os.Stderr, "\n  Saved to %s\n", outFile)
+	if cached > 0 {
+		fmt.Fprintln(os.Stderr)
+		dim.Fprintf(os.Stderr, "  Incremental: %d files re-parsed, %d cached\n", reParsed, cached)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  Saved to %s\n", graphFile)
 	fmt.Fprintf(os.Stderr, "  Done in %s\n", elapsed.Round(time.Millisecond))
 
 	return nil

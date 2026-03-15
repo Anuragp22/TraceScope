@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"runtime"
@@ -91,6 +92,9 @@ func (r *Registry) ParseFiles(filesByLang map[Language][]string) ([]*FileResult,
 					mu.Unlock()
 					continue
 				}
+				// Compute content hash
+				h := sha256.Sum256(source)
+				result.ContentHash = fmt.Sprintf("%x", h)
 				log.Debug().Str("file", j.path).
 					Int("functions", len(result.Functions)).
 					Int("calls", len(result.Calls)).
