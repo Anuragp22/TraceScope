@@ -1,242 +1,147 @@
 package parser
 
 import (
-	"context"
+	"go/ast"
+	goparser "go/parser"
+	"go/token"
 	"path/filepath"
 	"strings"
-	"unicode"
-
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
 )
 
-type GoParser struct {
-	lang *sitter.Language
-}
+// GoParser parses Go source files using the standard library's go/parser and go/ast.
+// This replaces tree-sitter for Go, providing compiler-accurate AST parsing with
+// proper receiver resolution, unicode-safe export detection, and closure handling.
+type GoParser struct{}
 
 func NewGoParser() *GoParser {
-	return &GoParser{lang: golang.GetLanguage()}
+	return &GoParser{}
 }
 
 func (p *GoParser) Language() Language { return LangGo }
 
 func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
-	parser := sitter.NewParser()
-	parser.SetLanguage(p.lang)
-
-	tree, err := parser.ParseCtx(context.Background(), nil, source)
-	if err != nil {
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, filePath, source, goparser.AllErrors)
+	if err != nil && file == nil {
 		return nil, err
 	}
-	defer tree.Close()
 
 	result := &FileResult{
 		FilePath:   filePath,
 		Language:   LangGo,
+		Package:    file.Name.Name,
 		IsTestFile: strings.HasSuffix(filePath, "_test.go"),
 	}
 
-	root := tree.RootNode()
-	p.walk(root, source, result)
-
-	return result, nil
-}
-
-func (p *GoParser) walk(node *sitter.Node, source []byte, result *FileResult) {
-	switch node.Type() {
-	case "package_clause":
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child.Type() == "package_identifier" {
-				result.Package = child.Content(source)
-			}
+	// Extract imports from the AST
+	for _, imp := range file.Imports {
+		importPath := strings.Trim(imp.Path.Value, `"`)
+		alias := ""
+		if imp.Name != nil {
+			alias = imp.Name.Name
 		}
+		result.Imports = append(result.Imports, Import{
+			Path:  importPath,
+			Alias: alias,
+			Line:  fset.Position(imp.Pos()).Line,
+		})
+	}
 
-	case "function_declaration":
-		name := ""
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child.Type() == "identifier" {
-				name = child.Content(source)
-				break
+	// Extract declarations (functions, methods, types)
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			name := d.Name.Name
+			receiver := ""
+			if d.Recv != nil && d.Recv.NumFields() > 0 {
+				receiver = receiverTypeName(d.Recv.List[0].Type)
 			}
-		}
-		if name != "" {
 			result.Functions = append(result.Functions, FunctionDef{
 				Name:      name,
-				StartLine: int(node.StartPoint().Row) + 1,
-				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isGoExported(name),
+				StartLine: fset.Position(d.Pos()).Line,
+				EndLine:   fset.Position(d.End()).Line,
+				Receiver:  receiver,
+				IsExport:  ast.IsExported(name),
 			})
-		}
-
-	case "method_declaration":
-		name := ""
-		receiver := ""
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			switch child.Type() {
-			case "field_identifier":
-				name = child.Content(source)
-			case "parameter_list":
-				// Extract receiver type
-				for j := 0; j < int(child.ChildCount()); j++ {
-					param := child.Child(j)
-					if param.Type() == "parameter_declaration" {
-						for k := 0; k < int(param.ChildCount()); k++ {
-							typeNode := param.Child(k)
-							t := typeNode.Type()
-							if t == "type_identifier" || t == "pointer_type" {
-								receiver = extractTypeName(typeNode, source)
-							}
-						}
+		case *ast.GenDecl:
+			if d.Tok == token.TYPE {
+				for _, spec := range d.Specs {
+					ts, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+					kind := ""
+					switch ts.Type.(type) {
+					case *ast.StructType:
+						kind = "struct"
+					case *ast.InterfaceType:
+						kind = "interface"
+					}
+					if kind != "" {
+						result.Classes = append(result.Classes, ClassDef{
+							Name:      ts.Name.Name,
+							StartLine: fset.Position(ts.Pos()).Line,
+							EndLine:   fset.Position(ts.End()).Line,
+							IsExport:  ast.IsExported(ts.Name.Name),
+							Kind:      kind,
+						})
 					}
 				}
 			}
 		}
-		if name != "" {
-			result.Functions = append(result.Functions, FunctionDef{
-				Name:      name,
-				StartLine: int(node.StartPoint().Row) + 1,
-				EndLine:   int(node.EndPoint().Row) + 1,
-				Receiver:  receiver,
-				IsExport:  isGoExported(name),
-			})
-		}
-
-	case "call_expression":
-		p.parseCallExpr(node, source, result)
-		// Don't recurse into children for calls, we handle it here
-		return
-
-	case "import_spec":
-		alias := ""
-		path := ""
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			switch child.Type() {
-			case "package_identifier":
-				alias = child.Content(source)
-			case "interpreted_string_literal":
-				path = strings.Trim(child.Content(source), "\"")
-			}
-		}
-		if path != "" {
-			result.Imports = append(result.Imports, Import{
-				Path:  path,
-				Alias: alias,
-				Line:  int(node.StartPoint().Row) + 1,
-			})
-		}
-
-	case "type_declaration":
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child.Type() == "type_spec" {
-				p.parseTypeSpec(child, source, result)
-			}
-		}
 	}
 
-	// Recurse
-	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walk(node.Child(i), source, result)
-	}
-}
-
-func (p *GoParser) parseCallExpr(node *sitter.Node, source []byte, result *FileResult) {
-	if node.ChildCount() == 0 {
-		return
-	}
-	funcNode := node.Child(0)
-	if funcNode == nil {
-		return
-	}
-
-	line := int(node.StartPoint().Row) + 1
-
-	switch funcNode.Type() {
-	case "identifier":
-		result.Calls = append(result.Calls, FunctionCall{
-			Name: funcNode.Content(source),
-			Line: line,
-		})
-	case "selector_expression":
-		operand := ""
-		selector := ""
-		for i := 0; i < int(funcNode.ChildCount()); i++ {
-			child := funcNode.Child(i)
-			switch child.Type() {
-			case "identifier":
-				operand = child.Content(source)
-			case "field_identifier":
-				selector = child.Content(source)
-			}
+	// Walk entire AST for call expressions — handles closures, nested calls, etc.
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
 		}
-		if selector != "" {
+		line := fset.Position(call.Pos()).Line
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
 			result.Calls = append(result.Calls, FunctionCall{
-				Name:     selector,
+				Name: fn.Name,
+				Line: line,
+			})
+		case *ast.SelectorExpr:
+			receiver := ""
+			if ident, ok := fn.X.(*ast.Ident); ok {
+				receiver = ident.Name
+			}
+			result.Calls = append(result.Calls, FunctionCall{
+				Name:     fn.Sel.Name,
 				Line:     line,
-				Receiver: operand,
+				Receiver: receiver,
 			})
 		}
-	}
+		return true
+	})
 
-	// Recurse into arguments for nested calls
-	for i := 1; i < int(node.ChildCount()); i++ {
-		p.walkForCalls(node.Child(i), source, result)
-	}
+	return result, nil
 }
 
-func (p *GoParser) walkForCalls(node *sitter.Node, source []byte, result *FileResult) {
-	if node.Type() == "call_expression" {
-		p.parseCallExpr(node, source, result)
-		return
-	}
-	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walkForCalls(node.Child(i), source, result)
-	}
-}
-
-func (p *GoParser) parseTypeSpec(node *sitter.Node, source []byte, result *FileResult) {
-	name := ""
-	kind := ""
-	for i := 0; i < int(node.ChildCount()); i++ {
-		child := node.Child(i)
-		switch child.Type() {
-		case "type_identifier":
-			name = child.Content(source)
-		case "struct_type":
-			kind = "struct"
-		case "interface_type":
-			kind = "interface"
+// receiverTypeName extracts the type name from a method receiver expression,
+// unwrapping pointer types and generic type parameters.
+func receiverTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return receiverTypeName(t.X)
+	case *ast.Ident:
+		return t.Name
+	case *ast.IndexExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	case *ast.IndexListExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
 		}
 	}
-	if name != "" && kind != "" {
-		result.Classes = append(result.Classes, ClassDef{
-			Name:      name,
-			StartLine: int(node.StartPoint().Row) + 1,
-			EndLine:   int(node.EndPoint().Row) + 1,
-			IsExport:  isGoExported(name),
-			Kind:      kind,
-		})
-	}
+	return ""
 }
 
-func extractTypeName(node *sitter.Node, source []byte) string {
-	content := node.Content(source)
-	content = strings.TrimPrefix(content, "*")
-	return content
-}
-
-func isGoExported(name string) bool {
-	if len(name) == 0 {
-		return false
-	}
-	return unicode.IsUpper(rune(name[0]))
-}
-
-// QualifiedName returns the fully qualified name for a Go function.
+// GoQualifiedName returns the fully qualified name for a Go function.
 func GoQualifiedName(pkg, receiver, name string) string {
 	parts := []string{}
 	if pkg != "" {

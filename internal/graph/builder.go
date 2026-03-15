@@ -26,17 +26,13 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	gd := &GraphData{}
 
 	// Data structures for cross-referencing
-	// funcByName maps "name" → list of function node IDs (for simple name matching)
 	funcByName := make(map[string][]string)
-	// funcByQualified maps "package.name" or "receiver.name" → node ID
 	funcByQualified := make(map[string]string)
-	// fileNodeByPath maps file path → file node ID
 	fileNodeByPath := make(map[string]string)
-	// importMap maps (file path, alias/basename) → imported file path
 	importMap := make(map[string]map[string]string)
-	// fileByDir maps directory → list of file results (for Go package resolution)
 	fileByDir := make(map[string][]*parser.FileResult)
-	// nodeMap for quick lookup
+
+	// Use heap-allocated nodes to avoid dangling pointers from slice growth
 	nodeMap := make(map[string]*Node)
 
 	// ── Pass 1: Register definitions ──
@@ -44,7 +40,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	for _, fr := range results {
 		// File node
 		fileID := makeFileID(fr.FilePath)
-		fileNode := Node{
+		fileNode := &Node{
 			ID:       fileID,
 			Type:     NodeFile,
 			Name:     filepath.Base(fr.FilePath),
@@ -53,9 +49,8 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 			Package:  fr.Package,
 			IsTest:   fr.IsTestFile,
 		}
-		gd.Nodes = append(gd.Nodes, fileNode)
+		nodeMap[fileID] = fileNode
 		fileNodeByPath[fr.FilePath] = fileID
-		nodeMap[fileID] = &gd.Nodes[len(gd.Nodes)-1]
 
 		dir := filepath.Dir(fr.FilePath)
 		fileByDir[dir] = append(fileByDir[dir], fr)
@@ -63,7 +58,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 		// Function nodes
 		for _, fn := range fr.Functions {
 			funcID := makeFuncID(fr.FilePath, fn.Name, fn.Receiver, fn.StartLine)
-			funcNode := Node{
+			funcNode := &Node{
 				ID:        funcID,
 				Type:      NodeFunction,
 				Name:      fn.Name,
@@ -75,8 +70,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				IsExport:  fn.IsExport,
 				IsTest:    fr.IsTestFile,
 			}
-			gd.Nodes = append(gd.Nodes, funcNode)
-			nodeMap[funcID] = &gd.Nodes[len(gd.Nodes)-1]
+			nodeMap[funcID] = funcNode
 
 			// CONTAINS edge: file → function
 			gd.Edges = append(gd.Edges, Edge{
@@ -109,7 +103,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 		// Class nodes
 		for _, cls := range fr.Classes {
 			classID := makeClassID(fr.FilePath, cls.Name)
-			classNode := Node{
+			classNode := &Node{
 				ID:        classID,
 				Type:      NodeClass,
 				Name:      cls.Name,
@@ -121,8 +115,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				IsExport:  cls.IsExport,
 				IsTest:    fr.IsTestFile,
 			}
-			gd.Nodes = append(gd.Nodes, classNode)
-			nodeMap[classID] = &gd.Nodes[len(gd.Nodes)-1]
+			nodeMap[classID] = classNode
 
 			// CONTAINS edge: file → class
 			gd.Edges = append(gd.Edges, Edge{
@@ -187,6 +180,12 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 		}
 	}
 
+	// Convert nodeMap to slice
+	gd.Nodes = make([]Node, 0, len(nodeMap))
+	for _, n := range nodeMap {
+		gd.Nodes = append(gd.Nodes, *n)
+	}
+
 	log.Debug().
 		Int("nodes", len(gd.Nodes)).
 		Int("edges", len(gd.Edges)).
@@ -209,14 +208,13 @@ func (b *Builder) resolveImport(fr *parser.FileResult, imp parser.Import, fileNo
 }
 
 func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]string, results []*parser.FileResult) string {
-	// For Go, imports are package paths. Find any file whose package matches.
-	// We match by checking if the file path contains the import path suffix.
+	// For Go, imports are package paths. Match by path-segment suffix.
 	for _, r := range results {
 		if r.Language != parser.LangGo {
 			continue
 		}
 		filePath := filepath.ToSlash(r.FilePath)
-		if strings.Contains(filePath, imp.Path) {
+		if pathSegmentSuffix(filePath, imp.Path) {
 			if id, ok := fileNodeByPath[r.FilePath]; ok {
 				return id
 			}
@@ -256,11 +254,33 @@ func (b *Builder) resolveJSImport(currentFile string, imp parser.Import, fileNod
 }
 
 func (b *Builder) resolvePythonImport(currentFile string, imp parser.Import, fileNodeByPath map[string]string) string {
-	// Convert dotted path to file path
-	parts := strings.Split(imp.Path, ".")
+	path := imp.Path
 	dir := filepath.Dir(currentFile)
 
-	// Try relative import
+	// Handle relative imports (leading dots)
+	dots := 0
+	for _, c := range path {
+		if c == '.' {
+			dots++
+		} else {
+			break
+		}
+	}
+
+	if dots > 0 {
+		path = path[dots:]
+		// Go up (dots-1) directories: one dot = current package
+		for i := 1; i < dots; i++ {
+			dir = filepath.Dir(dir)
+		}
+	}
+
+	// Convert dotted path to file path
+	var parts []string
+	if path != "" {
+		parts = strings.Split(path, ".")
+	}
+
 	relPath := filepath.Join(append([]string{dir}, parts...)...)
 	candidates := []string{
 		relPath + ".py",
@@ -272,15 +292,56 @@ func (b *Builder) resolvePythonImport(currentFile string, imp parser.Import, fil
 		}
 	}
 
-	// Try from project root - search all files
-	fileName := parts[len(parts)-1] + ".py"
-	for path, id := range fileNodeByPath {
-		if strings.HasSuffix(path, fileName) {
-			return id
+	// For absolute imports, use path-segment matching
+	if dots == 0 && len(parts) > 0 {
+		// Try matching by segments from right
+		for knownPath, id := range fileNodeByPath {
+			if !strings.HasSuffix(knownPath, ".py") {
+				continue
+			}
+			if pythonPathMatch(knownPath, parts) {
+				return id
+			}
 		}
 	}
 
 	return ""
+}
+
+// pythonPathMatch checks if a file path matches the Python import parts.
+// e.g., parts=["foo", "bar"] matches "src/foo/bar.py" or "src/foo/bar/__init__.py"
+func pythonPathMatch(filePath string, parts []string) bool {
+	normPath := filepath.ToSlash(filePath)
+	segments := strings.Split(normPath, "/")
+
+	// Try matching "parts[-1].py" as the file name
+	if len(parts) == 0 {
+		return false
+	}
+	lastPart := parts[len(parts)-1] + ".py"
+	if segments[len(segments)-1] != lastPart {
+		// Also try __init__.py in a matching directory
+		if segments[len(segments)-1] != "__init__.py" {
+			return false
+		}
+		if len(segments) < 2 || segments[len(segments)-2] != parts[len(parts)-1] {
+			return false
+		}
+		// Shift: check remaining parts against directory segments
+		segments = segments[:len(segments)-1]
+	}
+
+	// Check remaining import parts match path segments from right
+	if len(parts) > len(segments) {
+		return false
+	}
+	for i := 0; i < len(parts)-1; i++ {
+		segIdx := len(segments) - 1 - (len(parts) - 1 - i)
+		if segIdx < 0 || segments[segIdx] != parts[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // resolveCall tries to find the target function node for a call expression.
@@ -368,6 +429,22 @@ func (b *Builder) findContainingFunction(fr *parser.FileResult, line int, fileID
 	return ""
 }
 
+// pathSegmentSuffix checks if filePath ends with the given suffix when split by path segments.
+// e.g., pathSegmentSuffix("a/b/c/d", "c/d") → true, but pathSegmentSuffix("a/bc/d", "c/d") → false
+func pathSegmentSuffix(filePath, suffix string) bool {
+	fpParts := strings.Split(filepath.ToSlash(filePath), "/")
+	sParts := strings.Split(filepath.ToSlash(suffix), "/")
+	if len(sParts) > len(fpParts) {
+		return false
+	}
+	for i := range sParts {
+		if fpParts[len(fpParts)-len(sParts)+i] != sParts[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // ID generation helpers
 
 func makeFileID(path string) string {
@@ -375,12 +452,12 @@ func makeFileID(path string) string {
 }
 
 func makeFuncID(path, name, receiver string, line int) string {
-	key := fmt.Sprintf("%s:%s:%s:%d", path, receiver, name, line)
+	key := fmt.Sprintf("%s:%s:%s:%d", filepath.ToSlash(path), receiver, name, line)
 	return fmt.Sprintf("func:%s", hashStr(key))
 }
 
 func makeClassID(path, name string) string {
-	key := fmt.Sprintf("%s:%s", path, name)
+	key := fmt.Sprintf("%s:%s", filepath.ToSlash(path), name)
 	return fmt.Sprintf("class:%s", hashStr(key))
 }
 
@@ -411,8 +488,11 @@ func importBaseName(importPath string, lang parser.Language) string {
 		parts := strings.Split(importPath, "/")
 		return parts[len(parts)-1]
 	case parser.LangJavaScript, parser.LangTypeScript:
-		path := strings.TrimPrefix(importPath, "./")
-		path = strings.TrimPrefix(path, "../")
+		path := importPath
+		for strings.HasPrefix(path, "../") {
+			path = strings.TrimPrefix(path, "../")
+		}
+		path = strings.TrimPrefix(path, "./")
 		parts := strings.Split(path, "/")
 		name := parts[len(parts)-1]
 		for _, ext := range []string{".ts", ".tsx", ".js", ".jsx"} {
@@ -420,7 +500,12 @@ func importBaseName(importPath string, lang parser.Language) string {
 		}
 		return name
 	case parser.LangPython:
-		parts := strings.Split(importPath, ".")
+		// Strip leading dots for relative imports
+		clean := strings.TrimLeft(importPath, ".")
+		if clean == "" {
+			return ""
+		}
+		parts := strings.Split(clean, ".")
 		return parts[len(parts)-1]
 	}
 	return ""
