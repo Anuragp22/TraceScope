@@ -1,12 +1,22 @@
 package cmd
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	diffpkg "github.com/anurag/tracescope/internal/diff"
 	"github.com/anurag/tracescope/internal/graph"
 )
+
+// findRepoRoot uses git to find the repository root.
+func findRepoRoot() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
 
 // loadGraph loads the dependency graph from the standard or config-specified path.
 func loadGraph() (*graph.GraphData, error) {

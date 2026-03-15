@@ -5,10 +5,13 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/anurag/tracescope/internal/analyzer"
 	diffpkg "github.com/anurag/tracescope/internal/diff"
 	"github.com/anurag/tracescope/internal/output"
+	"github.com/anurag/tracescope/internal/ownership"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +22,7 @@ var (
 	topN          int
 	ignoreGlobs   string
 	githubComment bool
+	showOwners    bool
 )
 
 var analyzeCmd = &cobra.Command{
@@ -37,6 +41,7 @@ func init() {
 	analyzeCmd.Flags().IntVar(&topN, "top", 0, "show only top N affected functions (0 = all)")
 	analyzeCmd.Flags().StringVar(&ignoreGlobs, "ignore", "", "comma-separated glob patterns to exclude files (e.g., vendor/**,dist/**)")
 	analyzeCmd.Flags().BoolVar(&githubComment, "github-comment", false, "post blast radius as a GitHub PR comment (requires gh CLI)")
+	analyzeCmd.Flags().BoolVar(&showOwners, "owners", false, "show code owners and last authors for affected code")
 	rootCmd.AddCommand(analyzeCmd)
 }
 
@@ -116,6 +121,31 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 	}
 	ba := analyzer.NewBlastRadiusAnalyzer(graphData, analysisDepth, scorer)
 	result := ba.Analyze(changedFiles)
+
+	// Ownership lookup
+	if showOwners {
+		repoRoot, err := findRepoRoot()
+		if err != nil {
+			log.Warn().Err(err).Msg("could not find git repo root, skipping ownership")
+		} else {
+			ownerInfo, err := ownership.ResolveOwnership(repoRoot, result.AffectedFunctions, result.ChangedFiles)
+			if err != nil {
+				log.Warn().Err(err).Msg("ownership lookup failed")
+			} else {
+				result.Ownership = ownerInfo
+				for i := range result.AffectedFunctions {
+					af := &result.AffectedFunctions[i]
+					if af.Node != nil {
+						if info, ok := ownerInfo.FileAuthors[af.Node.FilePath]; ok {
+							af.LastAuthor = info.LastAuthor
+							af.LastEmail = info.LastEmail
+							af.LastModified = info.LastModified.Format(time.RFC3339)
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// Apply --top N pagination
 	if topN > 0 && topN < len(result.AffectedFunctions) {

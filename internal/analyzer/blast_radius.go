@@ -19,11 +19,14 @@ const (
 
 // AffectedFunction is a function in the blast radius with its risk assessment.
 type AffectedFunction struct {
-	Node        *graph.Node `json:"node"`
-	Depth       int         `json:"depth"`
-	Risk        RiskLevel   `json:"risk"`
-	CallerCount int         `json:"caller_count"`
-	Reason      string      `json:"reason"`
+	Node         *graph.Node `json:"node"`
+	Depth        int         `json:"depth"`
+	Risk         RiskLevel   `json:"risk"`
+	CallerCount  int         `json:"caller_count"`
+	Reason       string      `json:"reason"`
+	LastAuthor   string      `json:"last_author,omitempty"`
+	LastEmail    string      `json:"last_email,omitempty"`
+	LastModified string      `json:"last_modified,omitempty"`
 }
 
 // AnalysisResult holds the complete blast radius analysis.
@@ -36,6 +39,7 @@ type AnalysisResult struct {
 	MaxDepth          int                `json:"max_depth"`
 	TotalAffected     int                `json:"total_affected,omitempty"`
 	TopN              int                `json:"top_n,omitempty"`
+	Ownership         interface{}        `json:"ownership,omitempty"`
 }
 
 // RiskExitError is returned when the analysis completes but risk was found.

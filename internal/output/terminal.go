@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/anurag/tracescope/internal/analyzer"
+	"github.com/anurag/tracescope/internal/ownership"
 	"github.com/fatih/color"
 )
 
@@ -95,7 +96,27 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 	fmt.Fprintf(os.Stderr, ", ")
 	green.Fprintf(os.Stderr, "%d low", len(low))
 	fmt.Fprintln(os.Stderr)
+
+	// Ownership / Reviewers
+	if result.Ownership != nil {
+		if oi, ok := result.Ownership.(*ownership.OwnershipInfo); ok && len(oi.SuggestedReviewers) > 0 {
+			fmt.Fprintln(os.Stderr)
+			bold.Fprintln(os.Stderr, "  Suggested Reviewers:")
+			for _, r := range oi.SuggestedReviewers {
+				fmt.Fprintf(os.Stderr, "    %s ", r.Owner)
+				dim.Fprintf(os.Stderr, "(%d file%s)\n", r.FileCount, pluralS(r.FileCount))
+			}
+		}
+	}
+
 	fmt.Fprintln(os.Stderr)
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func groupByRisk(funcs []analyzer.AffectedFunction) (high, medium, low []analyzer.AffectedFunction) {
@@ -131,7 +152,11 @@ func printAffected(funcs []analyzer.AffectedFunction, cwd string) {
 		relPath := shortPathCwd(f.Node.FilePath, cwd)
 		fmt.Fprintf(os.Stderr, "      %s ", f.Node.Name)
 		dim.Fprintf(os.Stderr, "(%s:%d) ", relPath, f.Node.StartLine)
-		dim.Fprintf(os.Stderr, "[%d callers, depth %d — %s]\n", f.CallerCount, f.Depth, f.Reason)
+		dim.Fprintf(os.Stderr, "[%d callers, depth %d — %s]", f.CallerCount, f.Depth, f.Reason)
+		if f.LastAuthor != "" {
+			dim.Fprintf(os.Stderr, " by %s", f.LastAuthor)
+		}
+		fmt.Fprintln(os.Stderr)
 	}
 }
 
