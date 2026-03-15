@@ -2,8 +2,11 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api, type AnalysisResult } from "@/lib/api";
+import { github, type GitHubRepo, type GitHubPR } from "@/lib/github";
+import { useSession } from "@/lib/auth-client";
 import { useState } from "react";
-import { AlertTriangle, FileCode, Braces, Shield, GitBranch } from "lucide-react";
+import { AlertTriangle, FileCode, Braces, Shield, GitBranch, Github, LogIn } from "lucide-react";
+import { signIn } from "@/lib/auth-client";
 
 function riskBadge(risk: string) {
   const styles = {
@@ -68,7 +71,7 @@ function ResultsView({ result }: { result: AnalysisResult }) {
         <div className="space-y-1">
           {result.changed_files.map((f) => (
             <div key={f.path} className="text-sm font-mono text-muted-foreground flex items-center gap-2">
-              <span>{shortPath(f.path)}</span>
+              <span>{f.path}</span>
               {f.is_new && <span className="text-green-500 text-xs">[NEW]</span>}
               {f.is_deleted && <span className="text-red-500 text-xs">[DELETED]</span>}
             </div>
@@ -79,9 +82,7 @@ function ResultsView({ result }: { result: AnalysisResult }) {
       {result.affected_functions.length > 0 && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
-            <h3 className="font-medium">
-              Blast Radius ({result.affected_functions.length} affected)
-            </h3>
+            <h3 className="font-medium">Blast Radius ({result.affected_functions.length} affected)</h3>
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -91,9 +92,6 @@ function ResultsView({ result }: { result: AnalysisResult }) {
                 <th className="px-4 py-2 text-right">Callers</th>
                 <th className="px-4 py-2 text-right">Depth</th>
                 <th className="px-4 py-2 text-center">Risk</th>
-                {result.affected_functions.some((f) => f.last_author) && (
-                  <th className="px-4 py-2">Author</th>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -106,9 +104,6 @@ function ResultsView({ result }: { result: AnalysisResult }) {
                   <td className="px-4 py-2 text-right font-mono">{af.caller_count}</td>
                   <td className="px-4 py-2 text-right font-mono">{af.depth}</td>
                   <td className="px-4 py-2 text-center">{riskBadge(af.risk)}</td>
-                  {result.affected_functions.some((f) => f.last_author) && (
-                    <td className="px-4 py-2 text-muted-foreground text-xs">{af.last_author || "-"}</td>
-                  )}
                 </tr>
               ))}
             </tbody>
@@ -120,50 +115,68 @@ function ResultsView({ result }: { result: AnalysisResult }) {
 }
 
 export default function AnalyzePage() {
-  const [mode, setMode] = useState<"branch" | "paste">("branch");
-  const [baseBranch, setBaseBranch] = useState("");
+  const { data: session } = useSession();
+  const [mode, setMode] = useState<"github" | "paste">("github");
+  const [selectedRepo, setSelectedRepo] = useState("");
+  const [selectedPR, setSelectedPR] = useState<number | null>(null);
   const [diff, setDiff] = useState("");
 
-  const { data: branchData } = useQuery({
-    queryKey: ["branches"],
-    queryFn: api.getBranches,
+  const accessToken = (session as any)?.session?.accessToken || "";
+  const isLoggedIn = !!session?.user;
+
+  // Fetch repos
+  const { data: repos } = useQuery({
+    queryKey: ["github-repos", accessToken],
+    queryFn: () => github.getRepos(accessToken),
+    enabled: isLoggedIn && !!accessToken,
   });
 
-  const branchMutation = useMutation({
-    mutationFn: (base: string) => api.analyzeDiff({ base, uncommitted: false }),
+  // Parse owner/repo
+  const [repoOwner, repoName] = selectedRepo.split("/");
+
+  // Fetch PRs for selected repo
+  const { data: prs, isLoading: prsLoading } = useQuery({
+    queryKey: ["github-prs", selectedRepo],
+    queryFn: () => github.getPRs(accessToken, repoOwner, repoName),
+    enabled: !!selectedRepo && !!accessToken,
   });
 
-  const uncommittedMutation = useMutation({
-    mutationFn: () => api.analyzeDiff({ uncommitted: true }),
+  // Analyze PR mutation
+  const prMutation = useMutation({
+    mutationFn: async (prNumber: number) => {
+      const diffText = await github.getPRDiff(accessToken, repoOwner, repoName, prNumber);
+      return api.analyze(diffText);
+    },
   });
 
+  // Analyze paste mutation
   const pasteMutation = useMutation({
     mutationFn: (diffText: string) => api.analyze(diffText),
   });
 
-  const result = branchMutation.data || uncommittedMutation.data || pasteMutation.data;
-  const isPending = branchMutation.isPending || uncommittedMutation.isPending || pasteMutation.isPending;
-  const error = branchMutation.error || uncommittedMutation.error || pasteMutation.error;
+  const result = prMutation.data || pasteMutation.data;
+  const isPending = prMutation.isPending || pasteMutation.isPending;
+  const error = prMutation.error || pasteMutation.error;
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Analyze</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Compute blast radius from git changes
+          Compute blast radius from a pull request or diff
         </p>
       </div>
 
       {/* Mode tabs */}
       <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
         <button
-          onClick={() => setMode("branch")}
-          className={`px-4 py-1.5 rounded-md text-sm transition-colors ${
-            mode === "branch" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+          onClick={() => setMode("github")}
+          className={`px-4 py-1.5 rounded-md text-sm transition-colors flex items-center gap-1.5 ${
+            mode === "github" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
           }`}
         >
-          <GitBranch className="h-3.5 w-3.5 inline mr-1.5" />
-          Git Diff
+          <Github className="h-3.5 w-3.5" />
+          GitHub PR
         </button>
         <button
           onClick={() => setMode("paste")}
@@ -175,45 +188,94 @@ export default function AnalyzePage() {
         </button>
       </div>
 
-      {/* Git diff mode */}
-      {mode === "branch" && (
+      {/* GitHub PR mode */}
+      {mode === "github" && (
         <div className="bg-card border border-border rounded-lg p-4 space-y-4">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-1.5">
-              <label className="text-sm text-muted-foreground">Compare against</label>
-              <select
-                value={baseBranch}
-                onChange={(e) => setBaseBranch(e.target.value)}
-                className="bg-background border border-border rounded-md px-3 py-1.5 text-sm w-48"
+          {!isLoggedIn ? (
+            <div className="text-center py-8 space-y-3">
+              <Github className="h-10 w-10 mx-auto text-muted-foreground" />
+              <p className="text-muted-foreground">Sign in with GitHub to analyze pull requests</p>
+              <button
+                onClick={() => signIn.social({ provider: "github" })}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 inline-flex items-center gap-2"
               >
-                <option value="">Select branch...</option>
-                {branchData?.branches.map((b) => (
-                  <option key={b} value={b}>
-                    {b} {b === branchData.current ? "(current)" : ""}
-                  </option>
-                ))}
-              </select>
+                <LogIn className="h-4 w-4" />
+                Sign in with GitHub
+              </button>
             </div>
-            <button
-              onClick={() => baseBranch && branchMutation.mutate(baseBranch)}
-              disabled={!baseBranch || isPending}
-              className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {branchMutation.isPending ? "Analyzing..." : "Compare Branches"}
-            </button>
-            <span className="text-muted-foreground text-sm">or</span>
-            <button
-              onClick={() => uncommittedMutation.mutate()}
-              disabled={isPending}
-              className="px-4 py-1.5 bg-secondary text-secondary-foreground rounded-md text-sm font-medium hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {uncommittedMutation.isPending ? "Analyzing..." : "Uncommitted Changes"}
-            </button>
-          </div>
-          {branchData && (
-            <p className="text-xs text-muted-foreground">
-              Current branch: <span className="font-mono">{branchData.current}</span>
-            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-end gap-4">
+                {/* Repo selector */}
+                <div className="space-y-1.5">
+                  <label className="text-sm text-muted-foreground">Repository</label>
+                  <select
+                    value={selectedRepo}
+                    onChange={(e) => {
+                      setSelectedRepo(e.target.value);
+                      setSelectedPR(null);
+                    }}
+                    className="bg-background border border-border rounded-md px-3 py-1.5 text-sm w-64"
+                  >
+                    <option value="">Select repository...</option>
+                    {repos?.map((r) => (
+                      <option key={r.id} value={r.full_name}>
+                        {r.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* PR selector */}
+                <div className="space-y-1.5">
+                  <label className="text-sm text-muted-foreground">Pull Request</label>
+                  <select
+                    value={selectedPR ?? ""}
+                    onChange={(e) => setSelectedPR(e.target.value ? Number(e.target.value) : null)}
+                    disabled={!selectedRepo || prsLoading}
+                    className="bg-background border border-border rounded-md px-3 py-1.5 text-sm w-80 disabled:opacity-50"
+                  >
+                    <option value="">
+                      {prsLoading ? "Loading PRs..." : "Select pull request..."}
+                    </option>
+                    {prs?.map((pr) => (
+                      <option key={pr.number} value={pr.number}>
+                        #{pr.number} — {pr.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Analyze button */}
+                <button
+                  onClick={() => selectedPR && prMutation.mutate(selectedPR)}
+                  disabled={!selectedPR || isPending}
+                  className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {prMutation.isPending ? "Analyzing..." : "Analyze PR"}
+                </button>
+              </div>
+
+              {selectedPR && prs && (
+                <div className="text-xs text-muted-foreground">
+                  {(() => {
+                    const pr = prs.find((p) => p.number === selectedPR);
+                    if (!pr) return null;
+                    return (
+                      <span>
+                        {pr.base.ref} &larr; {pr.head.ref} by {pr.user.login}
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {!repos?.length && (
+                <p className="text-sm text-muted-foreground">
+                  No repositories found. Make sure the GitHub App is installed on your repos.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
