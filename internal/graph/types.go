@@ -13,9 +13,11 @@ const (
 type EdgeType string
 
 const (
-	EdgeContains EdgeType = "CONTAINS"
-	EdgeCalls    EdgeType = "CALLS"
-	EdgeImports  EdgeType = "IMPORTS"
+	EdgeContains   EdgeType = "CONTAINS"
+	EdgeCalls      EdgeType = "CALLS"
+	EdgeImports    EdgeType = "IMPORTS"
+	EdgeExtends    EdgeType = "EXTENDS"
+	EdgeImplements EdgeType = "IMPLEMENTS"
 )
 
 // Node represents a node in the dependency graph.
@@ -40,11 +42,20 @@ type Edge struct {
 	Type   EdgeType `json:"type"`
 }
 
+// FileMetadata stores per-file indexing metadata for incremental indexing.
+type FileMetadata struct {
+	Hash      string `json:"hash"`
+	Language  string `json:"language"`
+	ParsedAt  int64  `json:"parsed_at"`
+	NodeCount int    `json:"node_count"`
+}
+
 // GraphData is the serializable representation of the full dependency graph.
 type GraphData struct {
-	Nodes    []Node `json:"nodes"`
-	Edges    []Edge `json:"edges"`
-	RootPath string `json:"root_path,omitempty"`
+	Nodes        []Node                   `json:"nodes"`
+	Edges        []Edge                   `json:"edges"`
+	RootPath     string                   `json:"root_path,omitempty"`
+	FileMetadata map[string]*FileMetadata `json:"file_metadata,omitempty"`
 }
 
 // Metadata holds graph statistics.

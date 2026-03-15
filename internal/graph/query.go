@@ -39,6 +39,9 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 		case EdgeContains:
 			// File contains Func → if Func changes, File is affected
 			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], edge.Source)
+		case EdgeExtends, EdgeImplements:
+			// B extends A → if A changes, B is affected
+			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], edge.Source)
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anurag/tracescope/internal/parser"
 	"github.com/rs/zerolog/log"
@@ -128,6 +129,92 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 		}
 	}
 
+	// ── Pass 1.5: Class→Method CONTAINS edges + EXTENDS/IMPLEMENTS edges ──
+
+	// Build class lookup by name (scoped by package for Go, by file for others)
+	classByPkgName := make(map[string]string) // "pkg.ClassName" → classID
+	classByFileName := make(map[string]string) // "filePath:ClassName" → classID
+	for _, fr := range results {
+		for _, cls := range fr.Classes {
+			classID := makeClassID(fr.FilePath, cls.Name)
+			if fr.Language == parser.LangGo && fr.Package != "" {
+				classByPkgName[fr.Package+"."+cls.Name] = classID
+			}
+			classByFileName[fr.FilePath+":"+cls.Name] = classID
+		}
+	}
+
+	for _, fr := range results {
+		// Class→Method CONTAINS edges
+		classIDs := make(map[string]string) // className → classID (within this file's package)
+		for _, cls := range fr.Classes {
+			classIDs[cls.Name] = makeClassID(fr.FilePath, cls.Name)
+		}
+		// Also check other files in same Go package
+		if fr.Language == parser.LangGo {
+			dir := filepath.Dir(fr.FilePath)
+			for _, other := range fileByDir[dir] {
+				if other.Language == parser.LangGo && other.Package == fr.Package {
+					for _, cls := range other.Classes {
+						if _, exists := classIDs[cls.Name]; !exists {
+							classIDs[cls.Name] = makeClassID(other.FilePath, cls.Name)
+						}
+					}
+				}
+			}
+		}
+		for _, fn := range fr.Functions {
+			if fn.Receiver != "" {
+				if classID, ok := classIDs[fn.Receiver]; ok {
+					funcID := makeFuncID(fr.FilePath, fn.Name, fn.Receiver, fn.StartLine)
+					gd.Edges = append(gd.Edges, Edge{
+						Source: classID,
+						Target: funcID,
+						Type:   EdgeContains,
+					})
+				}
+			}
+		}
+
+		// EXTENDS edges from Bases
+		for _, cls := range fr.Classes {
+			classID := makeClassID(fr.FilePath, cls.Name)
+			for _, baseName := range cls.Bases {
+				targetID := ""
+				// Try same-file first
+				if id, ok := classByFileName[fr.FilePath+":"+baseName]; ok {
+					targetID = id
+				}
+				// Try same-package (Go)
+				if targetID == "" && fr.Language == parser.LangGo && fr.Package != "" {
+					if id, ok := classByPkgName[fr.Package+"."+baseName]; ok {
+						targetID = id
+					}
+				}
+				// Try any file (cross-file JS/TS/Python)
+				if targetID == "" {
+					for key, id := range classByFileName {
+						if strings.HasSuffix(key, ":"+baseName) {
+							targetID = id
+							break
+						}
+					}
+				}
+				if targetID != "" && targetID != classID {
+					edgeType := EdgeExtends
+					if cls.Kind == "interface" || cls.Kind == "struct" {
+						edgeType = EdgeExtends
+					}
+					gd.Edges = append(gd.Edges, Edge{
+						Source: classID,
+						Target: targetID,
+						Type:   edgeType,
+					})
+				}
+			}
+		}
+	}
+
 	// ── Pass 2: Resolve imports ──
 
 	for _, fr := range results {
@@ -191,6 +278,20 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	gd.Nodes = make([]Node, 0, len(nodeMap))
 	for _, id := range ids {
 		gd.Nodes = append(gd.Nodes, *nodeMap[id])
+	}
+
+	// ── Populate FileMetadata ──
+
+	gd.FileMetadata = make(map[string]*FileMetadata, len(results))
+	for _, fr := range results {
+		if fr.ContentHash != "" {
+			gd.FileMetadata[fr.FilePath] = &FileMetadata{
+				Hash:      fr.ContentHash,
+				Language:  string(fr.Language),
+				ParsedAt:  time.Now().Unix(),
+				NodeCount: len(fr.Functions) + len(fr.Classes),
+			}
+		}
 	}
 
 	log.Debug().
