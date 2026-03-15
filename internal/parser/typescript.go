@@ -180,9 +180,24 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 		}
 
 	case "export_statement":
+		// Walk children to find declarations within exports
+		// Also handle: export default function() {} / export default function name() {}
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
-			p.walk(child, source, result)
+			if child.Type() == "function_expression" || child.Type() == "arrow_function" {
+				name := findChildContent(child, "identifier", source)
+				if name == "" {
+					name = "default"
+				}
+				result.Functions = append(result.Functions, FunctionDef{
+					Name:      name,
+					StartLine: int(child.StartPoint().Row) + 1,
+					EndLine:   int(child.EndPoint().Row) + 1,
+					IsExport:  true,
+				})
+			} else {
+				p.walk(child, source, result)
+			}
 		}
 		return
 	}

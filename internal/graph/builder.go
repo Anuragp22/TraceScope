@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/anurag/tracescope/internal/parser"
@@ -180,10 +181,15 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 		}
 	}
 
-	// Convert nodeMap to slice
+	// Convert nodeMap to slice in deterministic order (sorted by ID)
+	ids := make([]string, 0, len(nodeMap))
+	for id := range nodeMap {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
 	gd.Nodes = make([]Node, 0, len(nodeMap))
-	for _, n := range nodeMap {
-		gd.Nodes = append(gd.Nodes, *n)
+	for _, id := range ids {
+		gd.Nodes = append(gd.Nodes, *nodeMap[id])
 	}
 
 	log.Debug().
@@ -209,6 +215,9 @@ func (b *Builder) resolveImport(fr *parser.FileResult, imp parser.Import, fileNo
 
 func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]string, results []*parser.FileResult) string {
 	// For Go, imports are package paths. Match by path-segment suffix.
+	// Prefer the longest (most specific) path match for determinism.
+	bestID := ""
+	bestLen := 0
 	for _, r := range results {
 		if r.Language != parser.LangGo {
 			continue
@@ -216,11 +225,14 @@ func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]s
 		filePath := filepath.ToSlash(r.FilePath)
 		if pathSegmentSuffix(filePath, imp.Path) {
 			if id, ok := fileNodeByPath[r.FilePath]; ok {
-				return id
+				if len(filePath) > bestLen {
+					bestID = id
+					bestLen = len(filePath)
+				}
 			}
 		}
 	}
-	return ""
+	return bestID
 }
 
 func (b *Builder) resolveJSImport(currentFile string, imp parser.Import, fileNodeByPath map[string]string) string {
@@ -279,6 +291,15 @@ func (b *Builder) resolvePythonImport(currentFile string, imp parser.Import, fil
 	var parts []string
 	if path != "" {
 		parts = strings.Split(path, ".")
+	}
+
+	// For "from . import foo" (dots only, no module), resolve to __init__.py in dir
+	if len(parts) == 0 && dots > 0 {
+		candidate := filepath.Join(dir, "__init__.py")
+		if id, ok := fileNodeByPath[candidate]; ok {
+			return id
+		}
+		return ""
 	}
 
 	relPath := filepath.Join(append([]string{dir}, parts...)...)
@@ -432,6 +453,9 @@ func (b *Builder) findContainingFunction(fr *parser.FileResult, line int, fileID
 // pathSegmentSuffix checks if filePath ends with the given suffix when split by path segments.
 // e.g., pathSegmentSuffix("a/b/c/d", "c/d") → true, but pathSegmentSuffix("a/bc/d", "c/d") → false
 func pathSegmentSuffix(filePath, suffix string) bool {
+	if suffix == "" || filePath == "" {
+		return false
+	}
 	fpParts := strings.Split(filepath.ToSlash(filePath), "/")
 	sParts := strings.Split(filepath.ToSlash(suffix), "/")
 	if len(sParts) > len(fpParts) {

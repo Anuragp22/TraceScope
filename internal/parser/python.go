@@ -191,19 +191,32 @@ func (p *PythonParser) parseCallExpr(node *sitter.Node, source []byte, result *F
 	}
 }
 
-// flattenAttribute recursively flattens nested attribute nodes into a list of names.
+// flattenAttribute iteratively flattens nested attribute nodes into a list of names.
 // e.g., a.b.c → ["a", "b", "c"]
+// Uses iterative approach to avoid stack overflow on deeply nested chains.
 func flattenAttribute(node *sitter.Node, source []byte) []string {
-	if node.Type() == "identifier" {
-		return []string{node.Content(source)}
+	// Collect attribute names from right to left, then reverse
+	var parts []string
+	cur := node
+	for i := 0; i < 100; i++ { // depth limit to prevent infinite loops
+		if cur.Type() == "identifier" {
+			parts = append(parts, cur.Content(source))
+			break
+		}
+		if cur.Type() == "attribute" && cur.ChildCount() >= 3 {
+			attrNode := cur.Child(int(cur.ChildCount()) - 1)
+			parts = append(parts, attrNode.Content(source))
+			cur = cur.Child(0) // descend into object
+			continue
+		}
+		parts = append(parts, cur.Content(source))
+		break
 	}
-	if node.Type() == "attribute" && node.ChildCount() >= 3 {
-		objNode := node.Child(0)
-		attrNode := node.Child(int(node.ChildCount()) - 1)
-		objParts := flattenAttribute(objNode, source)
-		return append(objParts, attrNode.Content(source))
+	// Reverse to get left-to-right order
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
 	}
-	return []string{node.Content(source)}
+	return parts
 }
 
 func (p *PythonParser) walkForPyCalls(node *sitter.Node, source []byte, result *FileResult) {

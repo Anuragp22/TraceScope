@@ -137,6 +137,9 @@ func receiverTypeName(expr ast.Expr) string {
 		if ident, ok := t.X.(*ast.Ident); ok {
 			return ident.Name
 		}
+	case *ast.SelectorExpr:
+		// Cross-package receiver: *pkg.TypeName → return "TypeName"
+		return t.Sel.Name
 	}
 	return ""
 }

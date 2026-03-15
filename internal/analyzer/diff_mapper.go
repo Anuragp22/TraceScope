@@ -118,7 +118,7 @@ func linesOverlap(aStart, aEnd, bStart, bEnd int) bool {
 }
 
 func normalizePath(p string) string {
-	p = filepath.ToSlash(p)
+	p = filepath.ToSlash(filepath.Clean(p))
 	p = strings.TrimPrefix(p, "./")
 	return p
 }
