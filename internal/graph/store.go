@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // Store handles persistence of graph data.
@@ -14,18 +15,32 @@ func NewStore() *Store {
 	return &Store{}
 }
 
-// Save writes graph data to a JSON file.
+// Save writes graph data to a JSON file atomically.
+// It writes to a temporary file first, then renames to the final path.
 func (s *Store) Save(data *GraphData, path string) error {
-	f, err := os.Create(path)
+	dir := filepath.Dir(path)
+	tmpFile, err := os.CreateTemp(dir, ".graph-*.tmp")
 	if err != nil {
-		return fmt.Errorf("creating file: %w", err)
+		return fmt.Errorf("creating temp file: %w", err)
 	}
-	defer f.Close()
+	tmpPath := tmpFile.Name()
 
-	enc := json.NewEncoder(f)
+	enc := json.NewEncoder(tmpFile)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("encoding graph: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("renaming temp file: %w", err)
 	}
 
 	return nil

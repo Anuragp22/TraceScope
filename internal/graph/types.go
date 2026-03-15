@@ -41,8 +41,9 @@ type Edge struct {
 
 // GraphData is the serializable representation of the full dependency graph.
 type GraphData struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes    []Node `json:"nodes"`
+	Edges    []Edge `json:"edges"`
+	RootPath string `json:"root_path,omitempty"`
 }
 
 // Metadata holds graph statistics.

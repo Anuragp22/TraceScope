@@ -32,10 +32,10 @@ func MapDiffToFunctions(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 	for _, cf := range changedFiles {
 		normDiffPath := normalizePath(cf.Path)
 
-		// Try to match the diff path to a known file
+		// Try to match the diff path to a known file using path-segment matching
 		var matchedPath string
 		for knownPath := range funcsByFile {
-			if strings.HasSuffix(knownPath, normDiffPath) || strings.HasSuffix(normDiffPath, knownPath) || knownPath == normDiffPath {
+			if knownPath == normDiffPath || pathSegmentSuffix(knownPath, normDiffPath) || pathSegmentSuffix(normDiffPath, knownPath) {
 				matchedPath = knownPath
 				break
 			}
@@ -87,13 +87,30 @@ func MapDiffToFileNodes(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 	for _, cf := range changedFiles {
 		normPath := normalizePath(cf.Path)
 		for knownPath, id := range fileNodes {
-			if strings.HasSuffix(knownPath, normPath) || strings.HasSuffix(normPath, knownPath) || knownPath == normPath {
+			if knownPath == normPath || pathSegmentSuffix(knownPath, normPath) || pathSegmentSuffix(normPath, knownPath) {
 				result = append(result, id)
 				break
 			}
 		}
 	}
 	return result
+}
+
+// pathSegmentSuffix checks if path ends with suffix when compared by path segments.
+// e.g., pathSegmentSuffix("src/utils/helper.go", "utils/helper.go") → true
+// but pathSegmentSuffix("src/myutils/helper.go", "utils/helper.go") → false
+func pathSegmentSuffix(path, suffix string) bool {
+	pathParts := strings.Split(path, "/")
+	suffixParts := strings.Split(suffix, "/")
+	if len(suffixParts) > len(pathParts) {
+		return false
+	}
+	for i := range suffixParts {
+		if pathParts[len(pathParts)-len(suffixParts)+i] != suffixParts[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func linesOverlap(aStart, aEnd, bStart, bEnd int) bool {
