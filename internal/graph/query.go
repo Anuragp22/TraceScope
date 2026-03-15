@@ -1,5 +1,9 @@
 package graph
 
+import (
+	"container/list"
+)
+
 // BlastRadiusResult holds the result of a blast radius computation.
 type BlastRadiusResult struct {
 	// AffectedNodes are the nodes within the blast radius, keyed by ID.
@@ -12,6 +16,7 @@ type BlastRadiusResult struct {
 
 // ComputeBlastRadius performs a reverse BFS from seed nodes up to maxDepth.
 // It follows CALLS and CONTAINS edges in reverse (who calls this? what file contains this?).
+// IMPORTS edges are excluded to avoid over-inflating the blast radius.
 func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int) *BlastRadiusResult {
 	if maxDepth <= 0 {
 		maxDepth = 5
@@ -24,8 +29,7 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 	}
 
 	// Build reverse adjacency: target → list of source node IDs
-	// For CALLS: if A calls B, then changing B affects A → reverse edge B→A
-	// For CONTAINS: if File contains Func, changing Func affects File → reverse edge Func→File
+	// Only for CALLS and CONTAINS — IMPORTS are excluded (M7)
 	reverseAdj := make(map[string][]string)
 	for _, edge := range graphData.Edges {
 		switch edge.Type {
@@ -34,9 +38,6 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], edge.Source)
 		case EdgeContains:
 			// File contains Func → if Func changes, File is affected
-			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], edge.Source)
-		case EdgeImports:
-			// A imports B → if B changes, A is affected
 			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], edge.Source)
 		}
 	}
@@ -47,28 +48,28 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 		MaxDepth:      maxDepth,
 	}
 
-	// BFS
-	visited := make(map[string]bool)
-	queue := make([]struct {
+	// BFS using container/list for efficient queue operations
+	type bfsEntry struct {
 		id    string
 		depth int
-	}, 0, len(seedNodeIDs))
+	}
+
+	visited := make(map[string]bool)
+	queue := list.New()
 
 	for _, id := range seedNodeIDs {
 		if _, ok := nodeMap[id]; ok {
 			visited[id] = true
 			result.AffectedNodes[id] = nodeMap[id]
 			result.Depth[id] = 0
-			queue = append(queue, struct {
-				id    string
-				depth int
-			}{id, 0})
+			queue.PushBack(bfsEntry{id, 0})
 		}
 	}
 
-	for len(queue) > 0 {
-		curr := queue[0]
-		queue = queue[1:]
+	for queue.Len() > 0 {
+		front := queue.Front()
+		curr := front.Value.(bfsEntry)
+		queue.Remove(front)
 
 		if curr.depth >= maxDepth {
 			continue
@@ -83,10 +84,7 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 			if node, ok := nodeMap[neighborID]; ok {
 				result.AffectedNodes[neighborID] = node
 				result.Depth[neighborID] = nextDepth
-				queue = append(queue, struct {
-					id    string
-					depth int
-				}{neighborID, nextDepth})
+				queue.PushBack(bfsEntry{neighborID, nextDepth})
 			}
 		}
 	}

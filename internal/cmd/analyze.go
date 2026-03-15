@@ -13,7 +13,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var diffFile string
+var (
+	diffFile      string
+	analysisDepth int
+)
 
 var analyzeCmd = &cobra.Command{
 	Use:   "analyze",
@@ -24,6 +27,7 @@ var analyzeCmd = &cobra.Command{
 
 func init() {
 	analyzeCmd.Flags().StringVar(&diffFile, "diff", "", "path to a unified diff file")
+	analyzeCmd.Flags().IntVar(&analysisDepth, "depth", 5, "maximum blast radius depth")
 	rootCmd.AddCommand(analyzeCmd)
 }
 
@@ -38,8 +42,11 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("reading diff file: %w", err)
 		}
 	} else {
-		// Check if stdin has data
-		stat, _ := os.Stdin.Stat()
+		// Check if stdin has data — handle Stat() error to avoid nil deref
+		stat, err := os.Stdin.Stat()
+		if err != nil {
+			return fmt.Errorf("no diff provided — use --diff <file> or pipe via stdin (e.g., git diff | tracescope analyze)")
+		}
 		if (stat.Mode() & os.ModeCharDevice) != 0 {
 			return fmt.Errorf("no diff provided — use --diff <file> or pipe via stdin (e.g., git diff | tracescope analyze)")
 		}
@@ -68,8 +75,8 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading graph (run 'tracescope index' first): %w", err)
 	}
 
-	// Run blast radius analysis
-	ba := analyzer.NewBlastRadiusAnalyzer(graphData)
+	// Run blast radius analysis with configurable depth
+	ba := analyzer.NewBlastRadiusAnalyzer(graphData, analysisDepth)
 	result := ba.Analyze(changedFiles)
 
 	// Output
