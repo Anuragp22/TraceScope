@@ -93,11 +93,28 @@ func (p *PythonParser) walk(node *sitter.Node, source []byte, result *FileResult
 		return
 
 	case "decorated_definition":
-		// Walk children to get the decorated function/class
+		// Extract decorator names, then walk the decorated function/class
+		var decorators []string
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
-			if child.Type() == "function_definition" || child.Type() == "class_definition" {
+			if child.Type() == "decorator" {
+				// Decorator node: @name or @module.name
+				decName := ""
+				for j := 0; j < int(child.ChildCount()); j++ {
+					gc := child.Child(j)
+					if gc.Type() == "identifier" || gc.Type() == "attribute" || gc.Type() == "dotted_name" {
+						decName = gc.Content(source)
+					}
+				}
+				if decName != "" {
+					decorators = append(decorators, decName)
+				}
+			} else if child.Type() == "function_definition" || child.Type() == "class_definition" {
 				p.walk(child, source, result, currentClass)
+				// Attach decorators to the last added function
+				if child.Type() == "function_definition" && len(result.Functions) > 0 {
+					result.Functions[len(result.Functions)-1].Decorators = decorators
+				}
 			}
 		}
 		return

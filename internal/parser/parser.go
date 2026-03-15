@@ -2,11 +2,13 @@ package parser
 
 // FunctionDef represents a function or method definition.
 type FunctionDef struct {
-	Name      string
-	StartLine int
-	EndLine   int
-	Receiver  string // Go method receiver type (empty for functions)
-	IsExport  bool   // exported/public
+	Name       string
+	StartLine  int
+	EndLine    int
+	Receiver   string   // Go method receiver type (empty for functions)
+	IsExport   bool     // exported/public
+	IsInit     bool     // Go init() function
+	Decorators []string // Python decorators (@property, @staticmethod, etc.)
 }
 
 // FunctionCall represents a function call expression.

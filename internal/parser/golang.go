@@ -4,13 +4,10 @@ import (
 	"go/ast"
 	goparser "go/parser"
 	"go/token"
-	"path/filepath"
 	"strings"
 )
 
 // GoParser parses Go source files using the standard library's go/parser and go/ast.
-// This replaces tree-sitter for Go, providing compiler-accurate AST parsing with
-// proper receiver resolution, unicode-safe export detection, and closure handling.
 type GoParser struct{}
 
 func NewGoParser() *GoParser {
@@ -62,6 +59,7 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 				EndLine:   fset.Position(d.End()).Line,
 				Receiver:  receiver,
 				IsExport:  ast.IsExported(name),
+				IsInit:    name == "init" && receiver == "",
 			})
 		case *ast.GenDecl:
 			if d.Tok == token.TYPE {
@@ -71,11 +69,28 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 						continue
 					}
 					kind := ""
-					switch ts.Type.(type) {
+					switch iface := ts.Type.(type) {
 					case *ast.StructType:
 						kind = "struct"
 					case *ast.InterfaceType:
 						kind = "interface"
+						// Extract interface method signatures as functions
+						if iface.Methods != nil {
+							for _, method := range iface.Methods.List {
+								if len(method.Names) > 0 {
+									if _, ok := method.Type.(*ast.FuncType); ok {
+										mName := method.Names[0].Name
+										result.Functions = append(result.Functions, FunctionDef{
+											Name:      mName,
+											StartLine: fset.Position(method.Pos()).Line,
+											EndLine:   fset.Position(method.End()).Line,
+											Receiver:  ts.Name.Name,
+											IsExport:  ast.IsExported(mName),
+										})
+									}
+								}
+							}
+						}
 					}
 					if kind != "" {
 						result.Classes = append(result.Classes, ClassDef{
@@ -142,32 +157,4 @@ func receiverTypeName(expr ast.Expr) string {
 		return t.Sel.Name
 	}
 	return ""
-}
-
-// GoQualifiedName returns the fully qualified name for a Go function.
-func GoQualifiedName(pkg, receiver, name string) string {
-	parts := []string{}
-	if pkg != "" {
-		parts = append(parts, pkg)
-	}
-	if receiver != "" {
-		parts = append(parts, receiver)
-	}
-	parts = append(parts, name)
-	return strings.Join(parts, ".")
-}
-
-// GoImportBaseName returns the base package name from an import path.
-func GoImportBaseName(importPath string) string {
-	parts := strings.Split(importPath, "/")
-	return parts[len(parts)-1]
-}
-
-// RelativeGoImportPath converts an absolute file path to a Go import-style relative path.
-func RelativeGoImportPath(basePath, filePath string) string {
-	rel, err := filepath.Rel(basePath, filepath.Dir(filePath))
-	if err != nil {
-		return filePath
-	}
-	return filepath.ToSlash(rel)
 }

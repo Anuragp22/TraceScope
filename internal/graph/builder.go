@@ -70,6 +70,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				Package:   fr.Package,
 				IsExport:  fn.IsExport,
 				IsTest:    fr.IsTestFile,
+				IsInit:    fn.IsInit,
 			}
 			nodeMap[funcID] = funcNode
 
@@ -412,11 +413,15 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 	}
 
 	// Simple name match: try to find in same file first, then globally
+	// Skip init() — it's called implicitly by Go runtime, not by user code
+	if call.Name == "init" && fr.Language == parser.LangGo {
+		return ""
+	}
 	if ids, ok := funcByName[call.Name]; ok {
 		// Prefer same-file match
 		for _, id := range ids {
 			if node, ok := nodeMap[id]; ok {
-				if node.FilePath == fr.FilePath {
+				if node.FilePath == fr.FilePath && !node.IsInit {
 					return id
 				}
 			}
@@ -425,7 +430,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 		if fr.Language == parser.LangGo && fr.Package != "" {
 			for _, id := range ids {
 				if node, ok := nodeMap[id]; ok {
-					if node.Package == fr.Package {
+					if node.Package == fr.Package && !node.IsInit {
 						return id
 					}
 				}

@@ -264,18 +264,3 @@ func (p *TypeScriptParser) walkForTSCalls(node *sitter.Node, source []byte, resu
 	}
 }
 
-// TSImportBaseName extracts the base name from a TS/JS import path.
-func TSImportBaseName(importPath string) string {
-	importPath = strings.TrimPrefix(importPath, "./")
-	importPath = strings.TrimPrefix(importPath, "../")
-	parts := strings.Split(importPath, "/")
-	name := parts[len(parts)-1]
-	// Remove extensions
-	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx"} {
-		name = strings.TrimSuffix(name, ext)
-	}
-	if name == "index" && len(parts) > 1 {
-		name = parts[len(parts)-2]
-	}
-	return name
-}

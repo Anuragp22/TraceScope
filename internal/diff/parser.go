@@ -1,6 +1,8 @@
 package diff
 
 import (
+	"strings"
+
 	"github.com/sourcegraph/go-diff/diff"
 )
 
@@ -28,6 +30,11 @@ func ParseUnifiedDiff(diffData []byte) ([]ChangedFile, error) {
 	var result []ChangedFile
 
 	for _, fd := range fileDiffs {
+		// Skip binary files
+		if isBinaryDiff(fd) {
+			continue
+		}
+
 		cf := ChangedFile{
 			Path:      cleanDiffPath(fd.NewName),
 			IsNew:     fd.OrigName == "/dev/null",
@@ -120,6 +127,17 @@ func splitLines(s string) []string {
 		lines = append(lines, s[start:])
 	}
 	return lines
+}
+
+// isBinaryDiff checks if a file diff represents a binary file change.
+func isBinaryDiff(fd *diff.FileDiff) bool {
+	for _, ext := range fd.Extended {
+		lower := strings.ToLower(ext)
+		if strings.Contains(lower, "binary") || strings.Contains(lower, "git binary patch") {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanDiffPath(path string) string {

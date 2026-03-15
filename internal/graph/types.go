@@ -30,6 +30,7 @@ type Node struct {
 	Language  string   `json:"language"`
 	IsExport  bool     `json:"is_export,omitempty"`
 	IsTest    bool     `json:"is_test,omitempty"`
+	IsInit    bool     `json:"is_init,omitempty"`
 }
 
 // Edge represents an edge in the dependency graph.

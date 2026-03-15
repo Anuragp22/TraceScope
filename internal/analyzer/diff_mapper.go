@@ -28,6 +28,7 @@ func MapDiffToFunctions(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 	}
 
 	var result []ChangedFunction
+	seen := make(map[string]bool) // deduplicate by NodeID
 
 	for _, cf := range changedFiles {
 		normDiffPath := normalizePath(cf.Path)
@@ -47,8 +48,13 @@ func MapDiffToFunctions(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 
 		funcs := funcsByFile[matchedPath]
 		for _, fn := range funcs {
+			if seen[fn.ID] {
+				continue
+			}
+
 			if cf.IsNew {
 				// New file — all functions are changed
+				seen[fn.ID] = true
 				result = append(result, ChangedFunction{
 					NodeID:   fn.ID,
 					Node:     fn,
@@ -60,6 +66,7 @@ func MapDiffToFunctions(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 			// Check if any changed line range overlaps with the function's line range
 			for _, lr := range cf.LineRanges {
 				if linesOverlap(lr.Start, lr.End, fn.StartLine, fn.EndLine) {
+					seen[fn.ID] = true
 					result = append(result, ChangedFunction{
 						NodeID:   fn.ID,
 						Node:     fn,
