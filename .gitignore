@@ -1,0 +1,36 @@
+# Binaries
+tracescope
+tracescope.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build
+/bin/
+/dist/
+
+# TraceScope data
+.tracescope/
+
+# Go
+vendor/
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage.out
+*.test
+
+# Misc
+cv.tex
+DIFFSCOPE_PLAN.md
