@@ -65,7 +65,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isJSExported(node, source),
+				IsExport:  isJSExported(node),
 			})
 		}
 
@@ -84,7 +84,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 							Name:      name,
 							StartLine: int(node.StartPoint().Row) + 1,
 							EndLine:   int(node.EndPoint().Row) + 1,
-							IsExport:  isJSExported(node, source),
+							IsExport:  isJSExported(node),
 						})
 						break
 					}
@@ -106,7 +106,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isJSExported(node, source),
+				IsExport:  isJSExported(node),
 				Kind:      "class",
 			})
 		}
@@ -125,7 +125,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isJSExported(node, source),
+				IsExport:  isJSExported(node),
 				Kind:      "interface",
 			})
 		}
@@ -144,7 +144,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isJSExported(node, source),
+				IsExport:  isJSExported(node),
 				Kind:      "type",
 			})
 		}

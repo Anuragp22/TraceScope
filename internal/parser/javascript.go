@@ -55,7 +55,7 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isJSExported(node, source),
+				IsExport:  isJSExported(node),
 			})
 		}
 
@@ -75,7 +75,7 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 							Name:      name,
 							StartLine: int(node.StartPoint().Row) + 1,
 							EndLine:   int(node.EndPoint().Row) + 1,
-							IsExport:  isJSExported(node, source),
+							IsExport:  isJSExported(node),
 						})
 						break
 					}
@@ -90,7 +90,7 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				Name:      name,
 				StartLine: int(node.StartPoint().Row) + 1,
 				EndLine:   int(node.EndPoint().Row) + 1,
-				IsExport:  isJSExported(node, source),
+				IsExport:  isJSExported(node),
 				Kind:      "class",
 			})
 		}
@@ -233,7 +233,7 @@ func trimQuotes(s string) string {
 	return s
 }
 
-func isJSExported(node *sitter.Node, source []byte) bool {
+func isJSExported(node *sitter.Node) bool {
 	parent := node.Parent()
 	if parent != nil && parent.Type() == "export_statement" {
 		return true
