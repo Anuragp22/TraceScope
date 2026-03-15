@@ -79,6 +79,10 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 		fmt.Fprintln(os.Stderr)
 	}
 
+	if result.TopN > 0 && result.TotalAffected > result.TopN {
+		dim.Fprintf(os.Stderr, "    ... showing top %d of %d affected functions\n\n", result.TopN, result.TotalAffected)
+	}
+
 	// Summary
 	bold.Fprintln(os.Stderr, "  Summary:")
 	fmt.Fprintf(os.Stderr, "    Graph: %d nodes, %d edges\n", result.TotalNodes, result.TotalEdges)
