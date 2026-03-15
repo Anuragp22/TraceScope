@@ -1,4 +1,0 @@
-*.go @Anuragp22
-internal/parser/** @Anuragp22 @parser-team
-internal/graph/** @Anuragp22 @graph-team
-internal/output/** @Anuragp22 @output-team
