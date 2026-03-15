@@ -11,6 +11,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
     "@xyflow/react": "^12.10.1",
+    "better-auth": "^1.5.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
