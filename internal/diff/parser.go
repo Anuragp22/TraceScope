@@ -39,7 +39,7 @@ func ParseUnifiedDiff(diffData []byte) ([]ChangedFile, error) {
 		}
 
 		for _, hunk := range fd.Hunks {
-			ranges := extractChangedLines(hunk)
+			ranges := extractChangedLinesFromBody(hunk)
 			cf.LineRanges = append(cf.LineRanges, ranges...)
 		}
 
@@ -47,43 +47,6 @@ func ParseUnifiedDiff(diffData []byte) ([]ChangedFile, error) {
 	}
 
 	return result, nil
-}
-
-// extractChangedLines extracts the new-file line ranges that were changed in a hunk.
-func extractChangedLines(hunk *diff.Hunk) []LineRange {
-	var ranges []LineRange
-
-	line := int(hunk.NewStartLine)
-	rangeStart := -1
-
-	for _, b := range hunk.Body {
-		switch b {
-		case '+':
-			if rangeStart == -1 {
-				rangeStart = line
-			}
-		case '-':
-			// Deleted lines don't advance the new-file line counter
-			continue
-		case '\\':
-			// "\ No newline at end of file" — skip
-			continue
-		default: // context line (space)
-			if rangeStart != -1 {
-				ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
-				rangeStart = -1
-			}
-		}
-
-		// Advance line for non-delete lines
-		if b != '-' {
-			// Find next newline to advance
-		}
-	}
-
-	// We need a more robust line-by-line approach
-	ranges = ranges[:0]
-	return extractChangedLinesFromBody(hunk)
 }
 
 // extractChangedLinesFromBody parses the hunk body line by line.
@@ -94,8 +57,20 @@ func extractChangedLinesFromBody(hunk *diff.Hunk) []LineRange {
 	line := int(hunk.NewStartLine)
 	rangeStart := -1
 
-	for _, bodyLine := range splitLines(body) {
+	lines := splitLines(body)
+	// Remove trailing empty string produced by splitLines when body ends with newline
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	for _, bodyLine := range lines {
 		if len(bodyLine) == 0 {
+			// Empty context line — still advances line counter
+			if rangeStart != -1 {
+				ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
+				rangeStart = -1
+			}
+			line++
 			continue
 		}
 
