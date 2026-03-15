@@ -3,12 +3,16 @@ package cmd
 import (
 	"os"
 
+	"github.com/anurag/tracescope/internal/config"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
-var verbose bool
+var (
+	verbose bool
+	cfg     config.Config
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "tracescope",
@@ -20,6 +24,18 @@ var rootCmd = &cobra.Command{
 			zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		}
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+		// Load project config
+		cwd, _ := os.Getwd()
+		loaded, path, err := config.Load(cwd)
+		if err != nil {
+			log.Warn().Err(err).Str("path", path).Msg("failed to load config")
+		} else {
+			cfg = loaded
+			if path != "" {
+				log.Debug().Str("path", path).Msg("loaded config")
+			}
+		}
 	},
 }
 

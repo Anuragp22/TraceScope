@@ -28,7 +28,7 @@ func TestBlastRadiusAnalyzer_BasicPipeline(t *testing.T) {
 		{Path: "main.go", LineRanges: []diff.LineRange{{Start: 14, End: 16}}},
 	}
 
-	ba := NewBlastRadiusAnalyzer(gd, 5)
+	ba := NewBlastRadiusAnalyzer(gd, 5, nil)
 	result := ba.Analyze(changedFiles)
 
 	if len(result.ChangedFunctions) != 1 {
@@ -65,7 +65,7 @@ func TestBlastRadiusAnalyzer_SeedDedup(t *testing.T) {
 		{Path: "a.go", LineRanges: []diff.LineRange{{Start: 2, End: 3}}},
 	}
 
-	ba := NewBlastRadiusAnalyzer(gd, 5)
+	ba := NewBlastRadiusAnalyzer(gd, 5, nil)
 	result := ba.Analyze(changedFiles)
 
 	// func:a1 is a seed, file:a should NOT be added as seed since func was found
@@ -94,7 +94,7 @@ func TestBlastRadiusAnalyzer_DeterministicOutput(t *testing.T) {
 	}
 
 	// Run twice and check order is same
-	ba := NewBlastRadiusAnalyzer(gd, 5)
+	ba := NewBlastRadiusAnalyzer(gd, 5, nil)
 	r1 := ba.Analyze(changedFiles)
 	r2 := ba.Analyze(changedFiles)
 

@@ -66,14 +66,19 @@ func HighestRiskExitCode(result *AnalysisResult) int {
 type BlastRadiusAnalyzer struct {
 	graphData *graph.GraphData
 	maxDepth  int
+	scorer    *RiskScorer
 }
 
-// NewBlastRadiusAnalyzer creates a new analyzer with a configurable max depth.
-func NewBlastRadiusAnalyzer(graphData *graph.GraphData, maxDepth int) *BlastRadiusAnalyzer {
+// NewBlastRadiusAnalyzer creates a new analyzer with a configurable max depth and scorer.
+// If scorer is nil, a default scorer is used.
+func NewBlastRadiusAnalyzer(graphData *graph.GraphData, maxDepth int, scorer *RiskScorer) *BlastRadiusAnalyzer {
 	if maxDepth <= 0 {
 		maxDepth = 5
 	}
-	return &BlastRadiusAnalyzer{graphData: graphData, maxDepth: maxDepth}
+	if scorer == nil {
+		scorer = &RiskScorer{}
+	}
+	return &BlastRadiusAnalyzer{graphData: graphData, maxDepth: maxDepth, scorer: scorer}
 }
 
 // Analyze runs the full analysis: diff → functions → blast radius → risk scoring.
@@ -136,7 +141,6 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 	callerCount, prodCallerCount := buildCallerCountMaps(a.graphData)
 
 	// Step 5: Score risk for affected nodes
-	scorer := &RiskScorer{}
 	for id, node := range br.AffectedNodes {
 		if seedSet[id] {
 			continue // skip seeds themselves
@@ -148,7 +152,7 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 		depth := br.Depth[id]
 		count := callerCount[id]
 		prodCount := prodCallerCount[id]
-		risk, reason := scorer.Score(node, count, depth, prodCount)
+		risk, reason := a.scorer.Score(node, count, depth, prodCount)
 
 		result.AffectedFunctions = append(result.AffectedFunctions, AffectedFunction{
 			Node:        node,
