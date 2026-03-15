@@ -1,7 +1,6 @@
 # Binaries
-tracescope
-tracescope.exe
-*.exe
+/tracescope
+/tracescope.exe
 *.dll
 *.so
 *.dylib
@@ -15,7 +14,6 @@ tracescope.exe
 
 # Go
 vendor/
-go.sum
 
 # IDE
 .idea/
