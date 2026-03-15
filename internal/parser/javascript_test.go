@@ -94,3 +94,34 @@ func TestJSParser_TestFile(t *testing.T) {
 		t.Error("app.spec.js should be detected as test file")
 	}
 }
+
+func TestJSParser_DefaultExport(t *testing.T) {
+	source := []byte(`
+export default function() {
+  console.log("default");
+}
+`)
+	p := NewJavaScriptParser()
+	result, err := p.Parse("default.js", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Should detect the anonymous default export as a function named "default"
+	found := false
+	for _, f := range result.Functions {
+		if f.IsExport {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected to find exported default function")
+	}
+}
+
+func TestJSParser_TrimQuotesBacktick(t *testing.T) {
+	s := trimQuotes("`hello`")
+	if s != "hello" {
+		t.Errorf("expected 'hello', got %q", s)
+	}
+}

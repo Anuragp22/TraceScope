@@ -11,15 +11,15 @@ func TestWalkDirectory(t *testing.T) {
 	dir := t.TempDir()
 
 	files := map[string]string{
-		"main.go":                 "package main",
-		"utils/helper.go":        "package utils",
-		"src/app.js":             "const x = 1;",
-		"src/app.ts":             "const x: number = 1;",
-		"lib/module.py":          "def foo(): pass",
-		"node_modules/pkg/a.js":  "skip",
-		"vendor/dep/b.go":        "skip",
-		".git/config":            "skip",
-		"__pycache__/cache.py":   "skip",
+		"main.go":                "package main",
+		"utils/helper.go":       "package utils",
+		"src/app.js":            "const x = 1;",
+		"src/app.ts":            "const x: number = 1;",
+		"lib/module.py":         "def foo(): pass",
+		"node_modules/pkg/a.js": "skip",
+		"vendor/dep/b.go":       "skip",
+		".git/config":           "skip",
+		"__pycache__/cache.py":  "skip",
 	}
 
 	for name, content := range files {
@@ -56,5 +56,29 @@ func TestWalkDirectory_Empty(t *testing.T) {
 	}
 	if len(result) != 0 {
 		t.Errorf("expected empty result, got %d languages", len(result))
+	}
+}
+
+func TestWalkDirectory_AllowGithub(t *testing.T) {
+	dir := t.TempDir()
+
+	// .github should be allowed, .other should be skipped
+	files := map[string]string{
+		".github/workflows/ci.js": "const ci = true;",
+		".hidden/secret.js":       "skip",
+	}
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		os.MkdirAll(filepath.Dir(path), 0755)
+		os.WriteFile(path, []byte(content), 0644)
+	}
+
+	result, err := WalkDirectory(dir)
+	if err != nil {
+		t.Fatalf("WalkDirectory failed: %v", err)
+	}
+
+	if len(result[LangJavaScript]) != 1 {
+		t.Errorf("expected 1 JS file from .github, got %d", len(result[LangJavaScript]))
 	}
 }

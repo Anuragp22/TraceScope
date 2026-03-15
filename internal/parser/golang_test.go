@@ -112,3 +112,78 @@ func TestSomething() {}
 		t.Error("expected IsTestFile to be true")
 	}
 }
+
+func TestGoParser_UnicodeExport(t *testing.T) {
+	source := []byte(`package main
+
+func Ñoño() {}
+func ñoño() {}
+`)
+	p := NewGoParser()
+	result, err := p.Parse("unicode.go", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if len(result.Functions) != 2 {
+		t.Fatalf("expected 2 functions, got %d", len(result.Functions))
+	}
+	if !result.Functions[0].IsExport {
+		t.Error("'Ñoño' should be exported (uppercase unicode)")
+	}
+	if result.Functions[1].IsExport {
+		t.Error("'ñoño' should not be exported (lowercase unicode)")
+	}
+}
+
+func TestGoParser_ClosureCalls(t *testing.T) {
+	source := []byte(`package main
+
+import "fmt"
+
+func outer() {
+	fn := func() {
+		fmt.Println("inside closure")
+	}
+	fn()
+}
+`)
+	p := NewGoParser()
+	result, err := p.Parse("closure.go", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	// Should detect Println call inside the closure
+	found := false
+	for _, c := range result.Calls {
+		if c.Name == "Println" && c.Receiver == "fmt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected to find fmt.Println call inside closure")
+	}
+}
+
+func TestGoParser_Interface(t *testing.T) {
+	source := []byte(`package io
+
+type Reader interface {
+	Read(p []byte) (n int, err error)
+}
+
+type Writer interface {
+	Write(p []byte) (n int, err error)
+}
+`)
+	p := NewGoParser()
+	result, err := p.Parse("io.go", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if len(result.Classes) != 2 {
+		t.Fatalf("expected 2 interfaces, got %d", len(result.Classes))
+	}
+	if result.Classes[0].Kind != "interface" {
+		t.Errorf("expected 'interface', got %q", result.Classes[0].Kind)
+	}
+}

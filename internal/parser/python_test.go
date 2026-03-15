@@ -74,3 +74,68 @@ func TestPythonParser_TestFile(t *testing.T) {
 		t.Error("test_app.py should be detected as test file")
 	}
 }
+
+func TestPythonParser_TestFileFalsePositive(t *testing.T) {
+	source := []byte(`def helper(): pass`)
+	p := NewPythonParser()
+
+	// A file in a path containing "test_" but not a test file itself
+	result, _ := p.Parse("src/test_utils/helper.py", source)
+	if result.IsTestFile {
+		t.Error("src/test_utils/helper.py should NOT be detected as test file")
+	}
+}
+
+func TestPythonParser_ChainedCalls(t *testing.T) {
+	source := []byte(`
+def process():
+    result = a.b.c()
+    x = foo.bar.baz()
+`)
+	p := NewPythonParser()
+	result, err := p.Parse("chain.py", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Should find chained calls with full receiver
+	foundABC := false
+	foundFBB := false
+	for _, c := range result.Calls {
+		if c.Name == "c" && c.Receiver == "a.b" {
+			foundABC = true
+		}
+		if c.Name == "baz" && c.Receiver == "foo.bar" {
+			foundFBB = true
+		}
+	}
+	if !foundABC {
+		t.Error("expected to find a.b.c() call")
+	}
+	if !foundFBB {
+		t.Error("expected to find foo.bar.baz() call")
+	}
+}
+
+func TestPythonParser_SameNameAttribute(t *testing.T) {
+	// Regression: foo.foo() was previously dropped because both identifiers had same content
+	source := []byte(`
+def test():
+    foo.foo()
+`)
+	p := NewPythonParser()
+	result, err := p.Parse("same_name.py", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	found := false
+	for _, c := range result.Calls {
+		if c.Name == "foo" && c.Receiver == "foo" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected to find foo.foo() call")
+	}
+}
