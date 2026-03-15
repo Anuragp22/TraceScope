@@ -103,6 +103,11 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface BranchesResult {
+  branches: string[];
+  current: string;
+}
+
 export const api = {
   getGraph: () => fetchAPI<GraphData>("/api/graph"),
   getStats: () => fetchAPI<StatsData>("/api/stats"),
@@ -116,6 +121,15 @@ export const api = {
       method: "POST",
       body: diff,
     }),
+  getBranches: () => fetchAPI<BranchesResult>("/api/analyze/branches"),
+  analyzeDiff: (opts: { base?: string; head?: string; uncommitted?: boolean; depth?: number }) => {
+    const params = new URLSearchParams();
+    if (opts.base) params.set("base", opts.base);
+    if (opts.head) params.set("head", opts.head);
+    if (opts.uncommitted) params.set("uncommitted", "true");
+    if (opts.depth) params.set("depth", String(opts.depth));
+    return fetchAPI<AnalysisResult>(`/api/analyze/diff?${params}`);
+  },
   why: (from: string, to: string, reverse = false) =>
     fetchAPI<PathResult>(
       `/api/why?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&reverse=${reverse}`

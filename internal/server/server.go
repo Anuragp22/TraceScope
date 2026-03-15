@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/anurag/tracescope/internal/analyzer"
 	diffpkg "github.com/anurag/tracescope/internal/diff"
@@ -66,6 +68,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("/graph", s.handleGraph).Methods("GET")
 	api.HandleFunc("/hotspots", s.handleHotspots).Methods("GET")
 	api.HandleFunc("/analyze", s.handleAnalyze).Methods("POST")
+	api.HandleFunc("/analyze/branches", s.handleBranches).Methods("GET")
+	api.HandleFunc("/analyze/diff", s.handleGitDiff).Methods("GET")
 	api.HandleFunc("/why", s.handleWhy).Methods("GET")
 	api.HandleFunc("/stats", s.handleStats).Methods("GET")
 	api.HandleFunc("/reload", s.handleReload).Methods("POST")
@@ -259,6 +263,102 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+// GET /api/analyze/branches — list git branches
+func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
+	out, err := exec.Command("git", "-C", s.repoRoot, "branch", "--format=%(refname:short)").Output()
+	if err != nil {
+		httpError(w, "listing branches: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+
+	// Also get current branch
+	currentOut, _ := exec.Command("git", "-C", s.repoRoot, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	current := strings.TrimSpace(string(currentOut))
+
+	writeJSON(w, map[string]interface{}{
+		"branches": branches,
+		"current":  current,
+	})
+}
+
+// GET /api/analyze/diff?base=main&head=HEAD&uncommitted=true
+func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
+	base := r.URL.Query().Get("base")
+	head := r.URL.Query().Get("head")
+	uncommitted := r.URL.Query().Get("uncommitted") == "true"
+
+	var args []string
+	if uncommitted {
+		// Staged + unstaged changes
+		args = []string{"-C", s.repoRoot, "diff", "HEAD"}
+	} else if base != "" && head != "" {
+		args = []string{"-C", s.repoRoot, "diff", base + "..." + head}
+	} else if base != "" {
+		args = []string{"-C", s.repoRoot, "diff", base + "...HEAD"}
+	} else {
+		// Default: uncommitted changes
+		args = []string{"-C", s.repoRoot, "diff", "HEAD"}
+	}
+
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		// git diff returns exit code 1 if there are differences — check if output exists
+		if len(out) == 0 {
+			httpError(w, "git diff failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if len(out) == 0 {
+		httpError(w, "no changes found", http.StatusNotFound)
+		return
+	}
+
+	// Parse and analyze the diff
+	changedFiles, err := diffpkg.ParseUnifiedDiff(out)
+	if err != nil {
+		httpError(w, "parsing diff: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	depthStr := r.URL.Query().Get("depth")
+	depth := 5
+	if d, err := strconv.Atoi(depthStr); err == nil && d > 0 {
+		depth = d
+	}
+
+	ba := analyzer.NewBlastRadiusAnalyzer(s.graphData, depth, s.scorer)
+	result := ba.Analyze(changedFiles)
+
+	// Enrich with ownership
+	if s.repoRoot != "" {
+		ownerInfo, err := ownership.ResolveOwnership(s.repoRoot, result.AffectedFunctions, result.ChangedFiles)
+		if err == nil {
+			result.Ownership = ownerInfo
+			for i := range result.AffectedFunctions {
+				af := &result.AffectedFunctions[i]
+				if af.Node != nil {
+					if info, ok := ownerInfo.FileAuthors[af.Node.FilePath]; ok {
+						af.LastAuthor = info.LastAuthor
+						af.LastEmail = info.LastEmail
+						af.LastModified = info.LastModified.Format("2006-01-02T15:04:05Z07:00")
+					}
+				}
+			}
+		}
+	}
+
+	writeJSON(w, result)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
