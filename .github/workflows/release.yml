@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install tree-sitter dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Build Linux amd64
+        env:
+          CGO_ENABLED: "1"
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -ldflags="-s -w" -o tracescope-linux-amd64 ./cmd/tracescope
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracescope-linux-amd64
+          path: tracescope-linux-amd64
+
+  release-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - goarch: amd64
+            name: darwin-amd64
+          - goarch: arm64
+            name: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build macOS ${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "1"
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -ldflags="-s -w" -o tracescope-${{ matrix.name }} ./cmd/tracescope
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracescope-${{ matrix.name }}
+          path: tracescope-${{ matrix.name }}
+
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build Windows amd64
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: "1"
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -ldflags="-s -w" -o tracescope-windows-amd64.exe ./cmd/tracescope
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracescope-windows-amd64
+          path: tracescope-windows-amd64.exe
+
+  publish:
+    needs: [release-linux, release-macos, release-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create archives
+        run: |
+          cd dist
+          # Linux
+          chmod +x tracescope-linux-amd64/tracescope-linux-amd64
+          tar -czf tracescope_linux_amd64.tar.gz -C tracescope-linux-amd64 tracescope-linux-amd64
+          # macOS amd64
+          chmod +x tracescope-darwin-amd64/tracescope-darwin-amd64
+          tar -czf tracescope_darwin_amd64.tar.gz -C tracescope-darwin-amd64 tracescope-darwin-amd64
+          # macOS arm64
+          chmod +x tracescope-darwin-arm64/tracescope-darwin-arm64
+          tar -czf tracescope_darwin_arm64.tar.gz -C tracescope-darwin-arm64 tracescope-darwin-arm64
+          # Windows
+          cd tracescope-windows-amd64 && zip ../tracescope_windows_amd64.zip tracescope-windows-amd64.exe && cd ..
+          # Checksums
+          sha256sum tracescope_*.tar.gz tracescope_*.zip > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/tracescope_linux_amd64.tar.gz
+            dist/tracescope_darwin_amd64.tar.gz
+            dist/tracescope_darwin_arm64.tar.gz
+            dist/tracescope_windows_amd64.zip
+            dist/checksums.txt

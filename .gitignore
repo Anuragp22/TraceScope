@@ -29,6 +29,16 @@ Thumbs.db
 coverage.out
 *.test
 
+# Reports
+*.html
+!web/**/*.html
+
+# Private keys
+*.pem
+
 # Misc
 cv.tex
+ps.md
+TODO.md
 DIFFSCOPE_PLAN.md
+tracescope2.exe

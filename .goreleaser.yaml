@@ -1,0 +1,56 @@
+version: 2
+
+project_name: tracescope
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tracescope
+    main: ./cmd/tracescope
+    binary: tracescope
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # CGo cross-compilation is complex — only build native targets
+      # GitHub Actions matrix handles cross-platform builds
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^style:"
+      - "^test:"
+
+release:
+  github:
+    owner: Anuragp22
+    name: TraceScope
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"
