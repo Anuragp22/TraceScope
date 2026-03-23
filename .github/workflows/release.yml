@@ -85,11 +85,10 @@ jobs:
           install: mingw-w64-ucrt-x86_64-gcc
 
       - name: Build Windows amd64
-        shell: msys2 {0}
+        shell: pwsh
         env:
           CGO_ENABLED: "1"
-          GOOS: windows
-          GOARCH: amd64
+          CC: D:\a\_temp\msys64\ucrt64\bin\gcc.exe
         run: go build -ldflags="-s -w" -o tracescope-windows-amd64.exe ./cmd/tracescope
 
       - name: Upload artifact
