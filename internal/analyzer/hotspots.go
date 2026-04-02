@@ -28,9 +28,9 @@ type HotspotsResult struct {
 
 // HotspotsOptions controls filtering for hotspot analysis.
 type HotspotsOptions struct {
-	TopN       int
-	Languages  map[string]bool // nil means all
-	IgnoreGlobs []string       // file paths to exclude
+	TopN        int
+	Languages   map[string]bool // nil means all
+	IgnoreGlobs []string        // file paths to exclude
 }
 
 // ComputeHotspots finds the most coupled functions in the graph.
@@ -43,12 +43,6 @@ func ComputeHotspots(graphData *graph.GraphData, opts HotspotsOptions) *Hotspots
 			inbound[e.Target]++
 			outbound[e.Source]++
 		}
-	}
-
-	// Build node map
-	nodeMap := make(map[string]*graph.Node, len(graphData.Nodes))
-	for i := range graphData.Nodes {
-		nodeMap[graphData.Nodes[i].ID] = &graphData.Nodes[i]
 	}
 
 	var hotspots []HotspotFunction
