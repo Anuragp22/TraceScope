@@ -2,9 +2,22 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, type GraphNode, type GraphEdge } from "@/lib/api";
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+  type MutableRefObject,
+  type ReactElement,
+} from "react";
 import dynamic from "next/dynamic";
 import { X, Layers, FolderTree, Braces, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import type {
+  ForceGraphMethods,
+  ForceGraphProps,
+  LinkObject,
+  NodeObject,
+} from "react-force-graph-3d";
 
 // Dynamic import — react-force-graph-3d needs window
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
@@ -14,7 +27,7 @@ const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
       Loading 3D engine...
     </div>
   ),
-});
+}) as TypedForceGraph;
 
 type ViewLevel = "architecture" | "modules" | "functions";
 
@@ -38,6 +51,17 @@ interface GraphViewLink {
   color: string;
   particles?: number;
 }
+
+type ViewNodeObject = NodeObject<GraphViewNode>;
+type ViewLinkObject = LinkObject<GraphViewNode, GraphViewLink>;
+
+type TypedForceGraph = (
+  props: ForceGraphProps<GraphViewNode, GraphViewLink> & {
+    ref?: MutableRefObject<
+      ForceGraphMethods<GraphViewNode, GraphViewLink> | undefined
+    >;
+  }
+) => ReactElement;
 
 const PACKAGE_COLORS = [
   "#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -255,7 +279,7 @@ export default function ExplorePage() {
   const [filterPackage, setFilterPackage] = useState<string | undefined>();
   const [filterFile, setFilterFile] = useState<string | undefined>();
   const [selectedNode, setSelectedNode] = useState<GraphViewNode | null>(null);
-  const fgRef = useRef<any>(null);
+  const fgRef = useRef<ForceGraphMethods<GraphViewNode, GraphViewLink> | undefined>(undefined);
 
   const graphView = useMemo(() => {
     if (!graphData) return { nodes: [], links: [] };
@@ -291,7 +315,7 @@ export default function ExplorePage() {
   }, [selectedNode, graphData]);
 
   const handleNodeClick = useCallback(
-    (node: any) => {
+    (node: ViewNodeObject) => {
       setSelectedNode(node);
 
       // Drill down on double-purpose click
@@ -309,10 +333,13 @@ export default function ExplorePage() {
       // Camera focus
       if (fgRef.current) {
         const distance = 120;
-        const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+        const x = node.x ?? 0;
+        const y = node.y ?? 0;
+        const z = node.z ?? 0;
+        const distRatio = 1 + distance / Math.max(1, Math.hypot(x, y, z));
         fgRef.current.cameraPosition(
-          { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-          node,
+          { x: x * distRatio, y: y * distRatio, z: z * distRatio },
+          { x, y, z },
           1000
         );
       }
@@ -346,16 +373,16 @@ export default function ExplorePage() {
       <ForceGraph3D
         ref={fgRef}
         graphData={graphView}
-        nodeLabel={(node: any) => {
+        nodeLabel={(node: ViewNodeObject) => {
           if (node.type === "package") return `${node.name} (${node.funcCount} functions, ${node.fileCount} files)`;
           if (node.type === "file") return `${node.name} (${node.funcCount} functions)`;
           return node.name;
         }}
-        nodeColor={(node: any) => node.color}
-        nodeVal={(node: any) => node.val}
+        nodeColor={(node: ViewNodeObject) => node.color}
+        nodeVal={(node: ViewNodeObject) => node.val}
         nodeOpacity={0.9}
-        linkColor={(link: any) => link.color}
-        linkDirectionalParticles={(link: any) => link.particles || 0}
+        linkColor={(link: ViewLinkObject) => link.color}
+        linkDirectionalParticles={(link: ViewLinkObject) => link.particles || 0}
         linkDirectionalParticleSpeed={0.005}
         linkDirectionalParticleColor={() => "#6b9fff"}
         linkDirectionalParticleWidth={1.5}

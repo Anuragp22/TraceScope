@@ -1,9 +1,5 @@
 package graph
 
-import (
-	"container/list"
-)
-
 // BlastRadiusResult holds the result of a blast radius computation.
 type BlastRadiusResult struct {
 	// AffectedNodes are the nodes within the blast radius, keyed by ID.
@@ -51,28 +47,28 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 		MaxDepth:      maxDepth,
 	}
 
-	// BFS using container/list for efficient queue operations
+	// BFS using a slice-backed queue to avoid per-element list allocations.
 	type bfsEntry struct {
 		id    string
 		depth int
 	}
 
 	visited := make(map[string]bool)
-	queue := list.New()
+	queue := make([]bfsEntry, 0, len(seedNodeIDs))
+	head := 0
 
 	for _, id := range seedNodeIDs {
 		if _, ok := nodeMap[id]; ok {
 			visited[id] = true
 			result.AffectedNodes[id] = nodeMap[id]
 			result.Depth[id] = 0
-			queue.PushBack(bfsEntry{id, 0})
+			queue = append(queue, bfsEntry{id: id, depth: 0})
 		}
 	}
 
-	for queue.Len() > 0 {
-		front := queue.Front()
-		curr := front.Value.(bfsEntry)
-		queue.Remove(front)
+	for head < len(queue) {
+		curr := queue[head]
+		head++
 
 		if curr.depth >= maxDepth {
 			continue
@@ -87,7 +83,7 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 			if node, ok := nodeMap[neighborID]; ok {
 				result.AffectedNodes[neighborID] = node
 				result.Depth[neighborID] = nextDepth
-				queue.PushBack(bfsEntry{neighborID, nextDepth})
+				queue = append(queue, bfsEntry{id: neighborID, depth: nextDepth})
 			}
 		}
 	}
