@@ -180,6 +180,110 @@ func TestBuilder_ResolvesJSImportByFullFileQualifier(t *testing.T) {
 	}
 }
 
+func TestBuilder_ResolvesAliasedNamedJSImport(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "src/app/main.ts",
+			Language: parser.LangTypeScript,
+			Functions: []parser.FunctionDef{
+				{Name: "main", StartLine: 1, EndLine: 6},
+			},
+			Imports: []parser.Import{
+				{Path: "../lib/worker", Alias: "makeBuild", Symbol: "build", Line: 1},
+			},
+			Calls: []parser.FunctionCall{
+				{Name: "makeBuild", Line: 3},
+			},
+		},
+		{
+			FilePath: "src/lib/worker.ts",
+			Language: parser.LangTypeScript,
+			Functions: []parser.FunctionDef{
+				{Name: "build", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+		{
+			FilePath: "src/other/worker.ts",
+			Language: parser.LangTypeScript,
+			Functions: []parser.FunctionDef{
+				{Name: "build", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	for _, e := range gd.Edges {
+		if e.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.FilePath == "src/app/main.ts" && tgt.FilePath == "src/lib/worker.ts" {
+			if e.Confidence != EdgeConfidenceExact {
+				t.Fatalf("expected exact confidence for aliased named import, got %q", e.Confidence)
+			}
+			return
+		}
+		if src != nil && tgt != nil && src.FilePath == "src/app/main.ts" && tgt.FilePath == "src/other/worker.ts" {
+			t.Fatal("resolved aliased named import to the wrong duplicate worker.ts target")
+		}
+	}
+
+	t.Fatal("expected makeBuild() to resolve to src/lib/worker.ts build()")
+}
+
+func TestBuilder_ResolvesDefaultJSImport(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "src/app/main.js",
+			Language: parser.LangJavaScript,
+			Functions: []parser.FunctionDef{
+				{Name: "main", StartLine: 1, EndLine: 6},
+			},
+			Imports: []parser.Import{
+				{Path: "../lib/service", Alias: "runService", Symbol: "default", Line: 1},
+			},
+			Calls: []parser.FunctionCall{
+				{Name: "runService", Line: 3},
+			},
+		},
+		{
+			FilePath: "src/lib/service.js",
+			Language: parser.LangJavaScript,
+			Functions: []parser.FunctionDef{
+				{Name: "default", StartLine: 1, EndLine: 3, IsExport: true},
+				{Name: "start", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+		{
+			FilePath: "src/other/service.js",
+			Language: parser.LangJavaScript,
+			Functions: []parser.FunctionDef{
+				{Name: "default", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	for _, e := range gd.Edges {
+		if e.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.FilePath == "src/app/main.js" && tgt.FilePath == "src/lib/service.js" && tgt.Name == "default" {
+			return
+		}
+		if src != nil && tgt != nil && src.FilePath == "src/app/main.js" && tgt.FilePath == "src/other/service.js" {
+			t.Fatal("resolved default import to the wrong duplicate service.js target")
+		}
+	}
+
+	t.Fatal("expected runService() to resolve to src/lib/service.js default export")
+}
+
 func TestBuilder_ResolvesGoImportsByPackageSuffix(t *testing.T) {
 	results := []*parser.FileResult{
 		{

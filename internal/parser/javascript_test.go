@@ -55,8 +55,9 @@ class Calculator {
 
 func TestJSParser_Imports(t *testing.T) {
 	source := []byte(`
-import { useState } from 'react';
+import { useState, useEffect as effect } from 'react';
 import axios from 'axios';
+import * as api from './client';
 const fs = require('fs');
 `)
 	p := NewJavaScriptParser()
@@ -69,13 +70,24 @@ const fs = require('fs');
 		t.Fatalf("expected at least 3 imports, got %d", len(result.Imports))
 	}
 
-	paths := map[string]bool{}
-	for _, imp := range result.Imports {
-		paths[imp.Path] = true
+	type importKey struct {
+		path   string
+		alias  string
+		symbol string
 	}
-	for _, expected := range []string{"react", "axios", "fs"} {
-		if !paths[expected] {
-			t.Errorf("expected import %q not found", expected)
+	imports := map[importKey]bool{}
+	for _, imp := range result.Imports {
+		imports[importKey{path: imp.Path, alias: imp.Alias, symbol: imp.Symbol}] = true
+	}
+	for _, expected := range []importKey{
+		{path: "react", alias: "useState", symbol: "useState"},
+		{path: "react", alias: "effect", symbol: "useEffect"},
+		{path: "axios", alias: "axios", symbol: "default"},
+		{path: "./client", alias: "api", symbol: "*"},
+		{path: "fs", alias: "fs", symbol: "*"},
+	} {
+		if !imports[expected] {
+			t.Errorf("expected import %+v not found", expected)
 		}
 	}
 }
@@ -110,12 +122,35 @@ export default function() {
 	// Should detect the anonymous default export as a function named "default"
 	found := false
 	for _, f := range result.Functions {
-		if f.IsExport {
+		if f.Name == "default" && f.IsExport {
 			found = true
 		}
 	}
 	if !found {
 		t.Error("expected to find exported default function")
+	}
+}
+
+func TestJSParser_NamedDefaultExportAlias(t *testing.T) {
+	source := []byte(`
+export default function run() {
+  return 1;
+}
+`)
+	p := NewJavaScriptParser()
+	result, err := p.Parse("default.js", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, fn := range result.Functions {
+		names[fn.Name] = true
+	}
+	for _, expected := range []string{"run", "default"} {
+		if !names[expected] {
+			t.Fatalf("expected function %q not found in %+v", expected, result.Functions)
+		}
 	}
 }
 

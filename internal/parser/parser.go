@@ -22,9 +22,10 @@ type FunctionCall struct {
 
 // Import represents an import statement.
 type Import struct {
-	Path  string
-	Alias string
-	Line  int
+	Path   string
+	Alias  string // local binding name used in this file
+	Symbol string // exported name in the source module: "default", "*", or a named symbol
+	Line   int
 }
 
 // ClassDef represents a class, struct, or interface definition.

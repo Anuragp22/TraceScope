@@ -139,23 +139,12 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 		return // handle recursion ourselves
 
 	case "import_statement":
-		path := ""
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child.Type() == "string" {
-				path = trimQuotes(child.Content(source))
-			}
-		}
-		if path != "" {
-			result.Imports = append(result.Imports, Import{
-				Path: path,
-				Line: int(node.StartPoint().Row) + 1,
-			})
-		}
+		result.Imports = append(result.Imports, parseJSImportStatement(node, source)...)
 
 	case "export_statement":
 		// Walk children to find declarations within exports
 		// Also handle: export default function() {} / export default function name() {}
+		isDefaultExport := hasJSChildType(node, "default")
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
 			// Handle anonymous default export functions
@@ -170,6 +159,14 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 					EndLine:   int(child.EndPoint().Row) + 1,
 					IsExport:  true,
 				})
+			} else if isDefaultExport && child.Type() == "function_declaration" {
+				result.Functions = append(result.Functions, FunctionDef{
+					Name:      "default",
+					StartLine: int(child.StartPoint().Row) + 1,
+					EndLine:   int(child.EndPoint().Row) + 1,
+					IsExport:  true,
+				})
+				p.walk(child, source, result)
 			} else {
 				p.walk(child, source, result)
 			}
@@ -200,9 +197,15 @@ func (p *JavaScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 				if args.Type() == "arguments" && args.ChildCount() > 1 {
 					arg := args.Child(1)
 					if arg.Type() == "string" {
+						alias := ""
+						if parent := node.Parent(); parent != nil && parent.Type() == "variable_declarator" {
+							alias = findChildContent(parent, "identifier", source)
+						}
 						result.Imports = append(result.Imports, Import{
-							Path: trimQuotes(arg.Content(source)),
-							Line: line,
+							Path:   trimQuotes(arg.Content(source)),
+							Alias:  alias,
+							Symbol: "*",
+							Line:   line,
 						})
 					}
 				}
@@ -251,6 +254,82 @@ func findChildContent(node *sitter.Node, childType string, source []byte) string
 	return ""
 }
 
+func parseJSImportStatement(node *sitter.Node, source []byte) []Import {
+	path := ""
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "string" {
+			path = trimQuotes(child.Content(source))
+		}
+	}
+	if path == "" {
+		return nil
+	}
+
+	line := int(node.StartPoint().Row) + 1
+	var imports []Import
+	for i := 0; i < int(node.ChildCount()); i++ {
+		imports = append(imports, parseJSImportClause(path, line, node.Child(i), source)...)
+	}
+	if len(imports) == 0 {
+		imports = append(imports, Import{Path: path, Line: line})
+	}
+	return imports
+}
+
+func parseJSImportClause(path string, line int, node *sitter.Node, source []byte) []Import {
+	switch node.Type() {
+	case "identifier":
+		return []Import{{
+			Path:   path,
+			Alias:  node.Content(source),
+			Symbol: "default",
+			Line:   line,
+		}}
+	case "namespace_import":
+		alias := findChildContent(node, "identifier", source)
+		if alias == "" {
+			return nil
+		}
+		return []Import{{
+			Path:   path,
+			Alias:  alias,
+			Symbol: "*",
+			Line:   line,
+		}}
+	case "import_specifier":
+		symbol := ""
+		alias := ""
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() != "identifier" && child.Type() != "property_identifier" {
+				continue
+			}
+			if symbol == "" {
+				symbol = child.Content(source)
+				alias = symbol
+				continue
+			}
+			alias = child.Content(source)
+		}
+		if alias == "" {
+			return nil
+		}
+		return []Import{{
+			Path:   path,
+			Alias:  alias,
+			Symbol: symbol,
+			Line:   line,
+		}}
+	}
+
+	var imports []Import
+	for i := 0; i < int(node.ChildCount()); i++ {
+		imports = append(imports, parseJSImportClause(path, line, node.Child(i), source)...)
+	}
+	return imports
+}
+
 func trimQuotes(s string) string {
 	s = strings.TrimPrefix(s, "\"")
 	s = strings.TrimSuffix(s, "\"")
@@ -265,6 +344,15 @@ func isJSExported(node *sitter.Node) bool {
 	parent := node.Parent()
 	if parent != nil && parent.Type() == "export_statement" {
 		return true
+	}
+	return false
+}
+
+func hasJSChildType(node *sitter.Node, childType string) bool {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if node.Child(i).Type() == childType {
+			return true
+		}
 	}
 	return false
 }

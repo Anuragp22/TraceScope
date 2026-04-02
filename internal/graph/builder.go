@@ -15,6 +15,11 @@ import (
 // Builder constructs the dependency graph from parsed file results.
 type Builder struct{}
 
+type importBinding struct {
+	TargetFileID string
+	Symbol       string
+}
+
 // NewBuilder creates a new graph builder.
 func NewBuilder() *Builder {
 	return &Builder{}
@@ -31,7 +36,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	funcByName := make(map[string][]string)
 	funcByQualified := make(map[string][]string)
 	fileNodeByPath := make(map[string]string)
-	importMap := make(map[string]map[string]string)
+	importMap := make(map[string]map[string]importBinding)
 	fileByDir := make(map[string][]*parser.FileResult)
 	classByName := make(map[string][]string)
 
@@ -247,7 +252,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 
 	for _, fr := range results {
 		fileID := fileNodeByPath[fr.FilePath]
-		fileImportMap := make(map[string]string)
+		fileImportMap := make(map[string]importBinding)
 
 		for _, imp := range fr.Imports {
 			// Try to find the target file
@@ -266,7 +271,10 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 					alias = importBaseName(imp.Path, fr.Language)
 				}
 				if alias != "" {
-					fileImportMap[alias] = targetFileID
+					fileImportMap[alias] = importBinding{
+						TargetFileID: targetFileID,
+						Symbol:       imp.Symbol,
+					}
 				}
 			}
 		}
@@ -534,7 +542,7 @@ const (
 	resolutionUnresolved
 )
 
-func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string][]string, importMap map[string]map[string]string, fileNodeByPath map[string]string, nodeMap map[string]*Node) (string, EdgeConfidence, resolutionStatus) {
+func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string][]string, importMap map[string]map[string]importBinding, fileNodeByPath map[string]string, nodeMap map[string]*Node) (string, EdgeConfidence, resolutionStatus) {
 	// If call has a receiver (e.g., pkg.Func, obj.Method)
 	if call.Receiver != "" {
 		if fr.Language == parser.LangGo && call.ReceiverType != "" {
@@ -559,8 +567,8 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 		}
 
 		if fileImports, ok := importMap[fr.FilePath]; ok {
-			if targetFileID, ok := fileImports[call.Receiver]; ok {
-				if targetNode, ok := nodeMap[targetFileID]; ok {
+			if binding, ok := fileImports[call.Receiver]; ok {
+				if targetNode, ok := nodeMap[binding.TargetFileID]; ok {
 					switch fr.Language {
 					case parser.LangGo:
 						qualKey := targetNode.Package + "." + call.Name
@@ -570,11 +578,23 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 							return "", "", resolutionAmbiguous
 						}
 					case parser.LangJavaScript, parser.LangTypeScript:
-						qualKey := fileQualifier(targetNode.FilePath) + "." + call.Name
-						if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
-							return id, EdgeConfidenceExact, resolutionResolved
-						} else if status == resolutionAmbiguous {
-							return "", "", resolutionAmbiguous
+						if binding.Symbol != "" && binding.Symbol != "*" {
+							qualKey := fileQualifier(targetNode.FilePath) + "." + binding.Symbol + "." + call.Name
+							if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
+								return id, EdgeConfidenceExact, resolutionResolved
+							} else if status == resolutionAmbiguous {
+								return "", "", resolutionAmbiguous
+							}
+						}
+						for _, qualKey := range []string{
+							fileQualifier(targetNode.FilePath) + "." + call.Name,
+							fileBaseName(targetNode.FilePath) + "." + call.Name,
+						} {
+							if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
+								return id, EdgeConfidenceExact, resolutionResolved
+							} else if status == resolutionAmbiguous {
+								return "", "", resolutionAmbiguous
+							}
 						}
 					}
 				}
@@ -595,6 +615,32 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 	// Skip init() — it's called implicitly by Go runtime, not by user code
 	if call.Name == "init" && fr.Language == parser.LangGo {
 		return "", "", resolutionUnresolved
+	}
+	if fileImports, ok := importMap[fr.FilePath]; ok && call.Receiver == "" {
+		if binding, ok := fileImports[call.Name]; ok {
+			if targetNode, ok := nodeMap[binding.TargetFileID]; ok {
+				if fr.Language == parser.LangJavaScript || fr.Language == parser.LangTypeScript {
+					symbol := binding.Symbol
+					if symbol == "" || symbol == "*" {
+						symbol = call.Name
+					}
+					qualKey := fileQualifier(targetNode.FilePath) + "." + symbol
+					if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
+						return id, EdgeConfidenceExact, resolutionResolved
+					} else if status == resolutionAmbiguous {
+						return "", "", resolutionAmbiguous
+					}
+					if symbol != call.Name {
+						aliasKey := fileQualifier(targetNode.FilePath) + "." + call.Name
+						if id, status := resolveUnique(funcByQualified[aliasKey]); id != "" {
+							return id, EdgeConfidenceExact, resolutionResolved
+						} else if status == resolutionAmbiguous {
+							return "", "", resolutionAmbiguous
+						}
+					}
+				}
+			}
+		}
 	}
 	if ids, ok := funcByName[call.Name]; ok {
 		// Prefer same-file match

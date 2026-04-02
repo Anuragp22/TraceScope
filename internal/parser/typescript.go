@@ -201,23 +201,12 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 		return
 
 	case "import_statement":
-		path := ""
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child.Type() == "string" {
-				path = trimQuotes(child.Content(source))
-			}
-		}
-		if path != "" {
-			result.Imports = append(result.Imports, Import{
-				Path: path,
-				Line: int(node.StartPoint().Row) + 1,
-			})
-		}
+		result.Imports = append(result.Imports, parseJSImportStatement(node, source)...)
 
 	case "export_statement":
 		// Walk children to find declarations within exports
 		// Also handle: export default function() {} / export default function name() {}
+		isDefaultExport := hasJSChildType(node, "default")
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
 			if child.Type() == "function_expression" || child.Type() == "arrow_function" {
@@ -231,6 +220,14 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 					EndLine:   int(child.EndPoint().Row) + 1,
 					IsExport:  true,
 				})
+			} else if isDefaultExport && child.Type() == "function_declaration" {
+				result.Functions = append(result.Functions, FunctionDef{
+					Name:      "default",
+					StartLine: int(child.StartPoint().Row) + 1,
+					EndLine:   int(child.EndPoint().Row) + 1,
+					IsExport:  true,
+				})
+				p.walk(child, source, result)
 			} else {
 				p.walk(child, source, result)
 			}
@@ -260,9 +257,15 @@ func (p *TypeScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 				if args.Type() == "arguments" && args.ChildCount() > 1 {
 					arg := args.Child(1)
 					if arg.Type() == "string" {
+						alias := ""
+						if parent := node.Parent(); parent != nil && parent.Type() == "variable_declarator" {
+							alias = findChildContent(parent, "identifier", source)
+						}
 						result.Imports = append(result.Imports, Import{
-							Path: trimQuotes(arg.Content(source)),
-							Line: line,
+							Path:   trimQuotes(arg.Content(source)),
+							Alias:  alias,
+							Symbol: "*",
+							Line:   line,
 						})
 					}
 				}
@@ -299,4 +302,3 @@ func (p *TypeScriptParser) walkForTSCalls(node *sitter.Node, source []byte, resu
 		p.walkForTSCalls(node.Child(i), source, result)
 	}
 }
-
