@@ -41,12 +41,12 @@ func (p *TypeScriptParser) Parse(filePath string, source []byte) (*FileResult, e
 	}
 
 	root := tree.RootNode()
-	p.walk(root, source, result)
+	p.walk(root, source, result, make(map[string]string))
 
 	return result, nil
 }
 
-func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileResult) {
+func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileResult, localTypes map[string]string) {
 	switch node.Type() {
 	case "function_declaration":
 		name := findChildContent(node, "identifier", source)
@@ -66,6 +66,9 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				name := findChildContent(child, "identifier", source)
 				if name == "" {
 					continue
+				}
+				if receiverType := inferTSVariableType(child, source); receiverType != "" {
+					localTypes[name] = receiverType
 				}
 				for j := 0; j < int(child.ChildCount()); j++ {
 					val := child.Child(j)
@@ -139,7 +142,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 								})
 							}
 						} else {
-							p.walk(gc, source, result)
+							p.walk(gc, source, result, localTypes)
 						}
 					}
 				}
@@ -197,7 +200,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 		}
 
 	case "call_expression":
-		p.parseCallExpr(node, source, result)
+		p.parseCallExpr(node, source, result, localTypes)
 		return
 
 	case "import_statement":
@@ -227,9 +230,9 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 					EndLine:   int(child.EndPoint().Row) + 1,
 					IsExport:  true,
 				})
-				p.walk(child, source, result)
+				p.walk(child, source, result, localTypes)
 			} else {
-				p.walk(child, source, result)
+				p.walk(child, source, result, localTypes)
 			}
 		}
 		return
@@ -237,11 +240,11 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 
 	// Recurse
 	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walk(node.Child(i), source, result)
+		p.walk(node.Child(i), source, result, localTypes)
 	}
 }
 
-func (p *TypeScriptParser) parseCallExpr(node *sitter.Node, source []byte, result *FileResult) {
+func (p *TypeScriptParser) parseCallExpr(node *sitter.Node, source []byte, result *FileResult, localTypes map[string]string) {
 	if node.ChildCount() == 0 {
 		return
 	}
@@ -281,24 +284,83 @@ func (p *TypeScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 		prop := findChildContent(funcNode, "property_identifier", source)
 		if prop != "" {
 			result.Calls = append(result.Calls, FunctionCall{
-				Name:     prop,
-				Line:     line,
-				Receiver: obj,
+				Name:         prop,
+				Line:         line,
+				Receiver:     obj,
+				ReceiverType: localTypes[obj],
 			})
 		}
 	}
 
 	for i := 1; i < int(node.ChildCount()); i++ {
-		p.walkForTSCalls(node.Child(i), source, result)
+		p.walkForTSCalls(node.Child(i), source, result, localTypes)
 	}
 }
 
-func (p *TypeScriptParser) walkForTSCalls(node *sitter.Node, source []byte, result *FileResult) {
+func (p *TypeScriptParser) walkForTSCalls(node *sitter.Node, source []byte, result *FileResult, localTypes map[string]string) {
 	if node.Type() == "call_expression" {
-		p.parseCallExpr(node, source, result)
+		p.parseCallExpr(node, source, result, localTypes)
 		return
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
-		p.walkForTSCalls(node.Child(i), source, result)
+		p.walkForTSCalls(node.Child(i), source, result, localTypes)
 	}
+}
+
+func inferTSVariableType(node *sitter.Node, source []byte) string {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		switch child.Type() {
+		case "type_annotation":
+			if typeName := findTSDeclaredType(child, source); typeName != "" {
+				return typeName
+			}
+		case "new_expression":
+			if typeName := findTSConstructorType(child, source); typeName != "" {
+				return typeName
+			}
+		}
+	}
+	return ""
+}
+
+func findTSDeclaredType(node *sitter.Node, source []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "type_identifier", "identifier":
+		return node.Content(source)
+	case "generic_type":
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "type_identifier" || child.Type() == "identifier" {
+				return child.Content(source)
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		if typeName := findTSDeclaredType(node.Child(i), source); typeName != "" {
+			return typeName
+		}
+	}
+	return ""
+}
+
+func findTSConstructorType(node *sitter.Node, source []byte) string {
+	if node == nil {
+		return ""
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "identifier" || child.Type() == "type_identifier" {
+			return child.Content(source)
+		}
+		if child.Type() == "member_expression" {
+			if name := findChildContent(child, "property_identifier", source); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
 }

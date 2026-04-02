@@ -60,3 +60,43 @@ export default function loadUser() {
 		}
 	}
 }
+
+func TestTSParser_MethodCallReceiverType(t *testing.T) {
+	source := []byte(`
+class User {
+  run() {
+    return "user";
+  }
+}
+
+class Service {
+  run() {
+    return "service";
+  }
+}
+
+function main() {
+  const user: User = new User();
+  user.run();
+}
+`)
+
+	p := NewTypeScriptParser()
+	result, err := p.Parse("app.ts", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	foundTypedCall := false
+	for _, call := range result.Calls {
+		if call.Receiver == "user" && call.Name == "run" {
+			if call.ReceiverType != "User" {
+				t.Fatalf("expected receiver type User, got %q", call.ReceiverType)
+			}
+			foundTypedCall = true
+		}
+	}
+	if !foundTypedCall {
+		t.Fatal("expected user.run() call to be parsed")
+	}
+}

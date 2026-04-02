@@ -284,6 +284,55 @@ func TestBuilder_ResolvesDefaultJSImport(t *testing.T) {
 	t.Fatal("expected runService() to resolve to src/lib/service.js default export")
 }
 
+func TestBuilder_ResolvesTypedTSMethodReceiver(t *testing.T) {
+	source := []byte(`
+class User {
+  run() {
+    return "user";
+  }
+}
+
+class Service {
+  run() {
+    return "service";
+  }
+}
+
+function main() {
+  const user: User = new User();
+  user.run();
+}
+`)
+
+	fr, err := parser.NewTypeScriptParser().Parse("app.ts", source)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	gd := NewBuilder().Build([]*parser.FileResult{fr})
+
+	foundUserRun := false
+	for _, e := range gd.Edges {
+		if e.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.Name == "main" && tgt.Name == "run" {
+			if tgt.ID != makeFuncID("app.ts", "run", "User", 3) {
+				t.Fatalf("expected user.run() to resolve to User.run, got %s", tgt.ID)
+			}
+			if e.Confidence != EdgeConfidenceExact {
+				t.Fatalf("expected exact confidence for typed TS receiver call, got %q", e.Confidence)
+			}
+			foundUserRun = true
+		}
+	}
+	if !foundUserRun {
+		t.Fatal("expected main -> User.run call edge")
+	}
+}
+
 func TestBuilder_ResolvesGoImportsByPackageSuffix(t *testing.T) {
 	results := []*parser.FileResult{
 		{

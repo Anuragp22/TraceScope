@@ -566,6 +566,44 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 			}
 		}
 
+		if fr.Language == parser.LangTypeScript && call.ReceiverType != "" {
+			type typedCandidate struct {
+				key        string
+				confidence EdgeConfidence
+			}
+			qualKeys := []typedCandidate{
+				{
+					key:        fileQualifier(fr.FilePath) + "." + call.ReceiverType + "." + call.Name,
+					confidence: EdgeConfidenceExact,
+				},
+				{
+					key:        call.ReceiverType + "." + call.Name,
+					confidence: EdgeConfidenceHeuristic,
+				},
+			}
+			if fileImports, ok := importMap[fr.FilePath]; ok {
+				if binding, ok := fileImports[call.ReceiverType]; ok {
+					if targetNode, ok := nodeMap[binding.TargetFileID]; ok {
+						symbol := binding.Symbol
+						if symbol == "" || symbol == "*" {
+							symbol = call.ReceiverType
+						}
+						qualKeys = append([]typedCandidate{{
+							key:        fileQualifier(targetNode.FilePath) + "." + symbol + "." + call.Name,
+							confidence: EdgeConfidenceExact,
+						}}, qualKeys...)
+					}
+				}
+			}
+			for _, candidate := range qualKeys {
+				if id, status := resolveUnique(funcByQualified[candidate.key]); id != "" {
+					return id, candidate.confidence, resolutionResolved
+				} else if status == resolutionAmbiguous {
+					return "", "", resolutionAmbiguous
+				}
+			}
+		}
+
 		if fileImports, ok := importMap[fr.FilePath]; ok {
 			if binding, ok := fileImports[call.Receiver]; ok {
 				if targetNode, ok := nodeMap[binding.TargetFileID]; ok {
