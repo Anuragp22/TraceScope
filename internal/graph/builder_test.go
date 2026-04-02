@@ -82,3 +82,153 @@ func TestBuilder_ClassNodes(t *testing.T) {
 		t.Errorf("expected 2 class nodes, got %d", classCount)
 	}
 }
+
+func TestBuilder_SkipsAmbiguousUnqualifiedCalls(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "caller/main.go",
+			Language: parser.LangGo,
+			Package:  "caller",
+			Functions: []parser.FunctionDef{
+				{Name: "main", StartLine: 1, EndLine: 5},
+			},
+			Calls: []parser.FunctionCall{
+				{Name: "Run", Line: 2},
+			},
+		},
+		{
+			FilePath: "pkg/a/service.go",
+			Language: parser.LangGo,
+			Package:  "a",
+			Functions: []parser.FunctionDef{
+				{Name: "Run", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+		{
+			FilePath: "pkg/b/service.go",
+			Language: parser.LangGo,
+			Package:  "b",
+			Functions: []parser.FunctionDef{
+				{Name: "Run", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	for _, e := range gd.Edges {
+		if e.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.Name == "main" && tgt.Name == "Run" {
+			t.Fatal("expected ambiguous unqualified Run() call to remain unresolved")
+		}
+	}
+}
+
+func TestBuilder_ResolvesJSImportByFullFileQualifier(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "src/app/main.js",
+			Language: parser.LangJavaScript,
+			Functions: []parser.FunctionDef{
+				{Name: "main", StartLine: 1, EndLine: 5},
+			},
+			Imports: []parser.Import{
+				{Path: "../lib/service", Alias: "service", Line: 1},
+			},
+			Calls: []parser.FunctionCall{
+				{Name: "start", Receiver: "service", Line: 3},
+			},
+		},
+		{
+			FilePath: "src/lib/service.js",
+			Language: parser.LangJavaScript,
+			Functions: []parser.FunctionDef{
+				{Name: "start", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+		{
+			FilePath: "src/other/service.js",
+			Language: parser.LangJavaScript,
+			Functions: []parser.FunctionDef{
+				{Name: "start", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	foundExpected := false
+	for _, e := range gd.Edges {
+		if e.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.FilePath == "src/app/main.js" && tgt.FilePath == "src/lib/service.js" {
+			foundExpected = true
+		}
+		if src != nil && tgt != nil && src.FilePath == "src/app/main.js" && tgt.FilePath == "src/other/service.js" {
+			t.Fatal("resolved imported service.start() to the wrong duplicate basename target")
+		}
+	}
+	if !foundExpected {
+		t.Fatal("expected service.start() to resolve to src/lib/service.js")
+	}
+}
+
+func TestBuilder_ResolvesGoImportsByPackageSuffix(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "cmd/app/main.go",
+			Language: parser.LangGo,
+			Package:  "main",
+			Functions: []parser.FunctionDef{
+				{Name: "main", StartLine: 1, EndLine: 5},
+			},
+			Imports: []parser.Import{
+				{Path: "github.com/acme/project/internal/service", Line: 1},
+			},
+			Calls: []parser.FunctionCall{
+				{Name: "Run", Receiver: "service", Line: 3},
+			},
+		},
+		{
+			FilePath: "internal/service/run.go",
+			Language: parser.LangGo,
+			Package:  "service",
+			Functions: []parser.FunctionDef{
+				{Name: "Run", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+		{
+			FilePath: "legacy/service/run.go",
+			Language: parser.LangGo,
+			Package:  "service",
+			Functions: []parser.FunctionDef{
+				{Name: "Run", StartLine: 1, EndLine: 3, IsExport: true},
+			},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	for _, e := range gd.Edges {
+		if e.Type != EdgeImports {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.FilePath == "cmd/app/main.go" && tgt.FilePath == "internal/service/run.go" {
+			return
+		}
+		if src != nil && tgt != nil && src.FilePath == "cmd/app/main.go" && tgt.FilePath == "legacy/service/run.go" {
+			t.Fatal("resolved github.com/acme/project/internal/service to the wrong overlapping package suffix")
+		}
+	}
+
+	t.Fatal("expected import to resolve to internal/service/run.go")
+}

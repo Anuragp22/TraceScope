@@ -29,10 +29,11 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 
 	// Data structures for cross-referencing
 	funcByName := make(map[string][]string)
-	funcByQualified := make(map[string]string)
+	funcByQualified := make(map[string][]string)
 	fileNodeByPath := make(map[string]string)
 	importMap := make(map[string]map[string]string)
 	fileByDir := make(map[string][]*parser.FileResult)
+	classByName := make(map[string][]string)
 
 	// Use heap-allocated nodes to avoid dangling pointers from slice growth
 	nodeMap := make(map[string]*Node)
@@ -53,6 +54,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 		}
 		nodeMap[fileID] = fileNode
 		fileNodeByPath[fr.FilePath] = fileID
+		fileNodeByPath[canonicalPath(fr.FilePath)] = fileID
 
 		dir := filepath.Dir(fr.FilePath)
 		fileByDir[dir] = append(fileByDir[dir], fr)
@@ -89,17 +91,27 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 			if fr.Language == parser.LangGo && fr.Package != "" {
 				if fn.Receiver != "" {
 					key := fr.Package + "." + fn.Receiver + "." + fn.Name
-					funcByQualified[key] = funcID
+					funcByQualified[key] = appendUnique(funcByQualified[key], funcID)
 				}
 				key := fr.Package + "." + fn.Name
-				funcByQualified[key] = funcID
+				funcByQualified[key] = appendUnique(funcByQualified[key], funcID)
 			}
 
-			// For JS/TS/Python: use file base name as pseudo-package
+			// For JS/TS/Python, index both basename and full normalized file
+			// qualifier. Basename keys are ambiguous across folders, so call
+			// resolution only uses them when they map to a single target.
 			if fr.Language != parser.LangGo {
-				baseName := fileBaseName(fr.FilePath)
-				key := baseName + "." + fn.Name
-				funcByQualified[key] = funcID
+				keys := []string{
+					fileBaseName(fr.FilePath) + "." + fn.Name,
+					fileQualifier(fr.FilePath) + "." + fn.Name,
+				}
+				if fn.Receiver != "" {
+					keys = append(keys, fn.Receiver+"."+fn.Name)
+					keys = append(keys, fileQualifier(fr.FilePath)+"."+fn.Receiver+"."+fn.Name)
+				}
+				for _, key := range keys {
+					funcByQualified[key] = appendUnique(funcByQualified[key], funcID)
+				}
 			}
 		}
 
@@ -119,6 +131,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				IsTest:    fr.IsTestFile,
 			}
 			nodeMap[classID] = classNode
+			classByName[cls.Name] = appendUnique(classByName[cls.Name], classID)
 
 			// CONTAINS edge: file → class
 			gd.Edges = append(gd.Edges, Edge{
@@ -132,7 +145,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	// ── Pass 1.5: Class→Method CONTAINS edges + EXTENDS/IMPLEMENTS edges ──
 
 	// Build class lookup by name (scoped by package for Go, by file for others)
-	classByPkgName := make(map[string]string) // "pkg.ClassName" → classID
+	classByPkgName := make(map[string]string)  // "pkg.ClassName" → classID
 	classByFileName := make(map[string]string) // "filePath:ClassName" → classID
 	for _, fr := range results {
 		for _, cls := range fr.Classes {
@@ -193,12 +206,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				}
 				// Try any file (cross-file JS/TS/Python)
 				if targetID == "" {
-					for key, id := range classByFileName {
-						if strings.HasSuffix(key, ":"+baseName) {
-							targetID = id
-							break
-						}
-					}
+					targetID = uniqueID(classByName[baseName])
 				}
 				if targetID != "" && targetID != classID {
 					edgeType := EdgeExtends
@@ -316,25 +324,34 @@ func (b *Builder) resolveImport(fr *parser.FileResult, imp parser.Import, fileNo
 }
 
 func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]string, results []*parser.FileResult) string {
-	// For Go, imports are package paths. Match by path-segment suffix.
-	// Prefer the longest (most specific) path match for determinism.
-	bestID := ""
-	bestLen := 0
+	// Go imports are package paths while graph nodes are file paths. Match each
+	// candidate's directory against the longest package-path suffix and only
+	// accept a unique best match.
+	bestIDs := []string{}
+	bestScore := 0
+	importPath := strings.Trim(imp.Path, "/")
+	importParts := strings.Split(importPath, "/")
 	for _, r := range results {
 		if r.Language != parser.LangGo {
 			continue
 		}
-		filePath := filepath.ToSlash(r.FilePath)
-		if pathSegmentSuffix(filePath, imp.Path) {
-			if id, ok := fileNodeByPath[r.FilePath]; ok {
-				if len(filePath) > bestLen {
-					bestID = id
-					bestLen = len(filePath)
-				}
+		dirPath := filepath.ToSlash(filepath.Dir(r.FilePath))
+		score := longestImportSuffixMatch(dirPath, importParts)
+		if score == 0 {
+			continue
+		}
+		if id, ok := fileNodeByPath[r.FilePath]; ok {
+			switch {
+			case score > bestScore:
+				bestScore = score
+				bestIDs = []string{id}
+			case score == bestScore:
+				bestIDs = appendUnique(bestIDs, id)
 			}
 		}
 	}
-	return bestID
+	sort.Strings(bestIDs)
+	return uniqueID(bestIDs)
 }
 
 func (b *Builder) resolveJSImport(currentFile string, imp parser.Import, fileNodeByPath map[string]string) string {
@@ -349,7 +366,7 @@ func (b *Builder) resolveJSImport(currentFile string, imp parser.Import, fileNod
 	// Try with various extensions
 	extensions := []string{"", ".ts", ".tsx", ".js", ".jsx"}
 	for _, ext := range extensions {
-		candidate := resolved + ext
+		candidate := canonicalPath(resolved + ext)
 		if id, ok := fileNodeByPath[candidate]; ok {
 			return id
 		}
@@ -358,7 +375,7 @@ func (b *Builder) resolveJSImport(currentFile string, imp parser.Import, fileNod
 	// Try index files
 	indexFiles := []string{"index.ts", "index.tsx", "index.js", "index.jsx"}
 	for _, idx := range indexFiles {
-		candidate := filepath.Join(resolved, idx)
+		candidate := canonicalPath(filepath.Join(resolved, idx))
 		if id, ok := fileNodeByPath[candidate]; ok {
 			return id
 		}
@@ -397,7 +414,7 @@ func (b *Builder) resolvePythonImport(currentFile string, imp parser.Import, fil
 
 	// For "from . import foo" (dots only, no module), resolve to __init__.py in dir
 	if len(parts) == 0 && dots > 0 {
-		candidate := filepath.Join(dir, "__init__.py")
+		candidate := canonicalPath(filepath.Join(dir, "__init__.py"))
 		if id, ok := fileNodeByPath[candidate]; ok {
 			return id
 		}
@@ -406,8 +423,8 @@ func (b *Builder) resolvePythonImport(currentFile string, imp parser.Import, fil
 
 	relPath := filepath.Join(append([]string{dir}, parts...)...)
 	candidates := []string{
-		relPath + ".py",
-		filepath.Join(relPath, "__init__.py"),
+		canonicalPath(relPath + ".py"),
+		canonicalPath(filepath.Join(relPath, "__init__.py")),
 	}
 	for _, c := range candidates {
 		if id, ok := fileNodeByPath[c]; ok {
@@ -417,15 +434,17 @@ func (b *Builder) resolvePythonImport(currentFile string, imp parser.Import, fil
 
 	// For absolute imports, use path-segment matching
 	if dots == 0 && len(parts) > 0 {
-		// Try matching by segments from right
+		var matches []string
 		for knownPath, id := range fileNodeByPath {
 			if !strings.HasSuffix(knownPath, ".py") {
 				continue
 			}
 			if pythonPathMatch(knownPath, parts) {
-				return id
+				matches = appendUnique(matches, id)
 			}
 		}
+		sort.Strings(matches)
+		return uniqueID(matches)
 	}
 
 	return ""
@@ -468,12 +487,12 @@ func pythonPathMatch(filePath string, parts []string) bool {
 }
 
 // resolveCall tries to find the target function node for a call expression.
-func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string]string, importMap map[string]map[string]string, fileNodeByPath map[string]string, nodeMap map[string]*Node) string {
+func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string][]string, importMap map[string]map[string]string, fileNodeByPath map[string]string, nodeMap map[string]*Node) string {
 	// If call has a receiver (e.g., pkg.Func, obj.Method)
 	if call.Receiver != "" {
 		// Try qualified lookup: receiver.name
 		key := call.Receiver + "." + call.Name
-		if id, ok := funcByQualified[key]; ok {
+		if id := uniqueID(funcByQualified[key]); id != "" {
 			return id
 		}
 
@@ -485,7 +504,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 					if targetNode, ok := nodeMap[targetFileID]; ok {
 						pkg := targetNode.Package
 						qualKey := pkg + "." + call.Name
-						if id, ok := funcByQualified[qualKey]; ok {
+						if id := uniqueID(funcByQualified[qualKey]); id != "" {
 							return id
 						}
 					}
@@ -500,11 +519,11 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 					// Find function in the imported file
 					baseName := ""
 					if targetNode, ok := nodeMap[targetFileID]; ok {
-						baseName = fileBaseName(targetNode.FilePath)
+						baseName = fileQualifier(targetNode.FilePath)
 					}
 					if baseName != "" {
 						qualKey := baseName + "." + call.Name
-						if id, ok := funcByQualified[qualKey]; ok {
+						if id := uniqueID(funcByQualified[qualKey]); id != "" {
 							return id
 						}
 					}
@@ -639,4 +658,46 @@ func importBaseName(importPath string, lang parser.Language) string {
 		return parts[len(parts)-1]
 	}
 	return ""
+}
+
+func fileQualifier(path string) string {
+	normalized := canonicalPath(path)
+	return strings.TrimSuffix(normalized, filepath.Ext(normalized))
+}
+
+func canonicalPath(path string) string {
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func appendUnique(ids []string, id string) []string {
+	if id == "" {
+		return ids
+	}
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
+}
+
+func uniqueID(ids []string) string {
+	if len(ids) == 1 {
+		return ids[0]
+	}
+	return ""
+}
+
+func longestImportSuffixMatch(dirPath string, importParts []string) int {
+	best := 0
+	for i := range importParts {
+		suffix := strings.Join(importParts[i:], "/")
+		if suffix != "" && pathSegmentSuffix(dirPath, suffix) {
+			score := len(importParts) - i
+			if score > best {
+				best = score
+			}
+		}
+	}
+	return best
 }

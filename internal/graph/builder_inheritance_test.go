@@ -114,6 +114,44 @@ func TestBuilder_FileMetadata(t *testing.T) {
 	}
 }
 
+func TestBuilder_SkipsAmbiguousCrossFileInheritance(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "src/one/base.py",
+			Language: parser.LangPython,
+			Classes: []parser.ClassDef{
+				{Name: "Base", StartLine: 1, EndLine: 2, Kind: "class"},
+			},
+		},
+		{
+			FilePath: "src/two/base.py",
+			Language: parser.LangPython,
+			Classes: []parser.ClassDef{
+				{Name: "Base", StartLine: 1, EndLine: 2, Kind: "class"},
+			},
+		},
+		{
+			FilePath: "src/child.py",
+			Language: parser.LangPython,
+			Classes: []parser.ClassDef{
+				{Name: "Child", StartLine: 1, EndLine: 4, Kind: "class", Bases: []string{"Base"}},
+			},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	for _, e := range gd.Edges {
+		if e.Type != EdgeExtends {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		if src != nil && src.Name == "Child" {
+			t.Fatal("expected ambiguous Child -> Base inheritance to remain unresolved")
+		}
+	}
+}
+
 func findNode(gd *GraphData, id string) *Node {
 	for i := range gd.Nodes {
 		if gd.Nodes[i].ID == id {
