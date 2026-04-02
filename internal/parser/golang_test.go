@@ -98,6 +98,43 @@ func (u *User) GetName() string {
 	}
 }
 
+func TestGoParser_MethodCallReceiverType(t *testing.T) {
+	source := []byte(`package models
+
+type User struct{}
+
+func (u User) GetName() string {
+	return "alice"
+}
+
+func Render() {
+	var user User
+	user.GetName()
+}
+`)
+	p := NewGoParser()
+	result, err := p.Parse("models.go", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	found := false
+	for _, call := range result.Calls {
+		if call.Name == "GetName" && call.Receiver == "user" {
+			found = true
+			if call.ReceiverType != "User" {
+				t.Fatalf("expected receiver type User, got %q", call.ReceiverType)
+			}
+			if call.ReceiverPackage != "models" {
+				t.Fatalf("expected receiver package models, got %q", call.ReceiverPackage)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected user.GetName() call to be parsed")
+	}
+}
+
 func TestGoParser_TestFile(t *testing.T) {
 	source := []byte(`package main
 

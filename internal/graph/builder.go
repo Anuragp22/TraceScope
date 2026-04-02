@@ -537,6 +537,27 @@ const (
 func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string][]string, importMap map[string]map[string]string, fileNodeByPath map[string]string, nodeMap map[string]*Node) (string, EdgeConfidence, resolutionStatus) {
 	// If call has a receiver (e.g., pkg.Func, obj.Method)
 	if call.Receiver != "" {
+		if fr.Language == parser.LangGo && call.ReceiverType != "" {
+			pkgName := call.ReceiverPackage
+			if pkgName == "" {
+				pkgName = fr.Package
+			}
+			if pkgName != "" {
+				qualKey := pkgName + "." + call.ReceiverType + "." + call.Name
+				if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
+					return id, EdgeConfidenceExact, resolutionResolved
+				} else if status == resolutionAmbiguous {
+					return "", "", resolutionAmbiguous
+				}
+			}
+			typeKey := call.ReceiverType + "." + call.Name
+			if id, status := resolveUnique(funcByQualified[typeKey]); id != "" {
+				return id, EdgeConfidenceExact, resolutionResolved
+			} else if status == resolutionAmbiguous {
+				return "", "", resolutionAmbiguous
+			}
+		}
+
 		if fileImports, ok := importMap[fr.FilePath]; ok {
 			if targetFileID, ok := fileImports[call.Receiver]; ok {
 				if targetNode, ok := nodeMap[targetFileID]; ok {
@@ -561,7 +582,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 		}
 
 		// Fall back to receiver.name for method-like lookups. Treat this as
-		// heuristic because local variable receivers are not type-inferred.
+		// heuristic when no static receiver type was inferred.
 		key := call.Receiver + "." + call.Name
 		if id, status := resolveUnique(funcByQualified[key]); id != "" {
 			return id, EdgeConfidenceHeuristic, resolutionResolved

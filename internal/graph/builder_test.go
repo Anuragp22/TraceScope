@@ -232,3 +232,46 @@ func TestBuilder_ResolvesGoImportsByPackageSuffix(t *testing.T) {
 
 	t.Fatal("expected import to resolve to internal/service/run.go")
 }
+
+func TestBuilder_ResolvesTypedGoMethodReceiver(t *testing.T) {
+	source := []byte(`package models
+
+type User struct{}
+type Service struct{}
+
+func (User) Run() {}
+func (Service) Run() {}
+
+func main() {
+	var user User
+	user.Run()
+}
+`)
+	fr, err := parser.NewGoParser().Parse("models.go", source)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	gd := NewBuilder().Build([]*parser.FileResult{fr})
+
+	foundUserRun := false
+	for _, e := range gd.Edges {
+		if e.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.Name == "main" && tgt.Name == "Run" {
+			if tgt.ID != makeFuncID("models.go", "Run", "User", 6) {
+				t.Fatalf("expected user.Run() to resolve to User.Run, got %s", tgt.ID)
+			}
+			if e.Confidence != EdgeConfidenceExact {
+				t.Fatalf("expected exact confidence for typed receiver call, got %q", e.Confidence)
+			}
+			foundUserRun = true
+		}
+	}
+	if !foundUserRun {
+		t.Fatal("expected main -> User.Run call edge")
+	}
+}

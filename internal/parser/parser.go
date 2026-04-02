@@ -13,9 +13,11 @@ type FunctionDef struct {
 
 // FunctionCall represents a function call expression.
 type FunctionCall struct {
-	Name     string
-	Line     int
-	Receiver string // e.g., "pkg.Func" → receiver is "pkg"
+	Name            string
+	Line            int
+	Receiver        string // lexical selector receiver, e.g. "pkg" or "user"
+	ReceiverType    string // static receiver type for method calls, e.g. "User"
+	ReceiverPackage string // static receiver package for method calls, e.g. "models"
 }
 
 // Import represents an import statement.

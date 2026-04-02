@@ -2,8 +2,10 @@ package parser
 
 import (
 	"go/ast"
+	"go/importer"
 	goparser "go/parser"
 	"go/token"
+	"go/types"
 	"strings"
 )
 
@@ -124,6 +126,8 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 	}
 
 	// Walk entire AST for call expressions — handles closures, nested calls, etc.
+	selections := inferGoSelections(fset, file)
+
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -141,11 +145,20 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 			if ident, ok := fn.X.(*ast.Ident); ok {
 				receiver = ident.Name
 			}
-			result.Calls = append(result.Calls, FunctionCall{
+			parsedCall := FunctionCall{
 				Name:     fn.Sel.Name,
 				Line:     line,
 				Receiver: receiver,
-			})
+			}
+			if selection := selections[fn]; selection != nil {
+				if selection.Kind() == types.MethodVal || selection.Kind() == types.MethodExpr {
+					parsedCall.ReceiverType, parsedCall.ReceiverPackage = goReceiverTypeInfo(selection.Recv())
+					if parsedCall.ReceiverPackage == "" {
+						parsedCall.ReceiverPackage = result.Package
+					}
+				}
+			}
+			result.Calls = append(result.Calls, parsedCall)
 		}
 		return true
 	})
@@ -191,4 +204,36 @@ func typeExprName(expr ast.Expr) string {
 		return typeExprName(t.X)
 	}
 	return ""
+}
+
+func inferGoSelections(fset *token.FileSet, file *ast.File) map[*ast.SelectorExpr]*types.Selection {
+	info := &types.Info{
+		Selections: make(map[*ast.SelectorExpr]*types.Selection),
+	}
+	cfg := &types.Config{
+		Importer: importer.Default(),
+		Error:    func(error) {},
+	}
+	_, _ = cfg.Check(file.Name.Name, fset, []*ast.File{file}, info)
+	return info.Selections
+}
+
+func goReceiverTypeInfo(recv types.Type) (string, string) {
+	for {
+		switch t := recv.(type) {
+		case *types.Pointer:
+			recv = t.Elem()
+		case *types.Named:
+			pkgName := ""
+			if obj := t.Obj(); obj != nil {
+				if pkg := obj.Pkg(); pkg != nil {
+					pkgName = pkg.Name()
+				}
+				return obj.Name(), pkgName
+			}
+			return "", ""
+		default:
+			return "", ""
+		}
+	}
 }
