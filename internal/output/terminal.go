@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/anurag/tracescope/internal/analyzer"
 	"github.com/anurag/tracescope/internal/ownership"
@@ -22,14 +23,12 @@ var (
 
 // PrintAnalysis outputs the blast radius analysis to the terminal.
 func PrintAnalysis(result *analyzer.AnalysisResult) {
-	// Cache cwd once instead of calling os.Getwd() per function
 	cwd, _ := os.Getwd()
 
 	fmt.Fprintln(os.Stderr)
-	cyan.Fprintln(os.Stderr, "TraceScope — Blast Radius Analysis")
+	cyan.Fprintln(os.Stderr, "TraceScope - Blast Radius Analysis")
 	fmt.Fprintln(os.Stderr)
 
-	// Changed files
 	bold.Fprintf(os.Stderr, "  Changed Files (%d):\n", len(result.ChangedFiles))
 	for _, cf := range result.ChangedFiles {
 		label := ""
@@ -42,7 +41,6 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 	}
 	fmt.Fprintln(os.Stderr)
 
-	// Changed functions
 	bold.Fprintf(os.Stderr, "  Changed Functions (%d):\n", len(result.ChangedFunctions))
 	for _, cf := range result.ChangedFunctions {
 		relPath := shortPathCwd(cf.FilePath, cwd)
@@ -51,7 +49,6 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 	}
 	fmt.Fprintln(os.Stderr)
 
-	// Blast radius by risk
 	high, medium, low := groupByRisk(result.AffectedFunctions)
 
 	bold.Fprintf(os.Stderr, "  Blast Radius (%d affected):\n", len(result.AffectedFunctions))
@@ -84,11 +81,16 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 		dim.Fprintf(os.Stderr, "    ... showing top %d of %d affected functions\n\n", result.TopN, result.TotalAffected)
 	}
 
-	// Summary
 	bold.Fprintln(os.Stderr, "  Summary:")
 	fmt.Fprintf(os.Stderr, "    Graph: %d nodes, %d edges\n", result.TotalNodes, result.TotalEdges)
 	fmt.Fprintf(os.Stderr, "    Changed: %d files, %d functions\n", len(result.ChangedFiles), len(result.ChangedFunctions))
 	fmt.Fprintf(os.Stderr, "    Blast radius: %d affected functions (depth %d)\n", len(result.AffectedFunctions), result.MaxDepth)
+	fmt.Fprintf(os.Stderr, "    Confidence: %d exact, %d heuristic, %d ambiguous skipped, %d unresolved\n",
+		result.ResolutionStats.ExactCallEdges,
+		result.ResolutionStats.HeuristicCallEdges,
+		result.ResolutionStats.AmbiguousCalls,
+		result.ResolutionStats.UnresolvedCalls,
+	)
 	fmt.Fprintf(os.Stderr, "    Risk: ")
 	red.Fprintf(os.Stderr, "%d high", len(high))
 	fmt.Fprintf(os.Stderr, ", ")
@@ -97,7 +99,6 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 	green.Fprintf(os.Stderr, "%d low", len(low))
 	fmt.Fprintln(os.Stderr)
 
-	// Ownership / Reviewers
 	if result.Ownership != nil {
 		if oi, ok := result.Ownership.(*ownership.OwnershipInfo); ok && len(oi.SuggestedReviewers) > 0 {
 			fmt.Fprintln(os.Stderr)
@@ -131,11 +132,13 @@ func groupByRisk(funcs []analyzer.AffectedFunction) (high, medium, low []analyze
 		}
 	}
 
-	// Sort each group by caller count descending, then name for stability
 	sortGroup := func(s []analyzer.AffectedFunction) {
 		sort.Slice(s, func(i, j int) bool {
 			if s[i].CallerCount != s[j].CallerCount {
 				return s[i].CallerCount > s[j].CallerCount
+			}
+			if s[i].Node == nil || s[j].Node == nil {
+				return s[i].Node != nil
 			}
 			return s[i].Node.Name < s[j].Node.Name
 		})
@@ -149,15 +152,35 @@ func groupByRisk(funcs []analyzer.AffectedFunction) (high, medium, low []analyze
 
 func printAffected(funcs []analyzer.AffectedFunction, cwd string) {
 	for _, f := range funcs {
+		if f.Node == nil {
+			continue
+		}
 		relPath := shortPathCwd(f.Node.FilePath, cwd)
 		fmt.Fprintf(os.Stderr, "      %s ", f.Node.Name)
 		dim.Fprintf(os.Stderr, "(%s:%d) ", relPath, f.Node.StartLine)
-		dim.Fprintf(os.Stderr, "[%d callers, depth %d — %s]", f.CallerCount, f.Depth, f.Reason)
+		dim.Fprintf(os.Stderr, "[%d callers, depth %d, %s, %s]", f.CallerCount, f.Depth, formatConfidence(f.Confidence), f.Reason)
 		if f.LastAuthor != "" {
 			dim.Fprintf(os.Stderr, " by %s", f.LastAuthor)
 		}
 		fmt.Fprintln(os.Stderr)
+		if path := formatImpactPathText(f); path != "" {
+			dim.Fprintf(os.Stderr, "        path: %s\n", path)
+		}
 	}
+}
+
+func formatImpactPathText(f analyzer.AffectedFunction) string {
+	if len(f.ImpactPath) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(f.ImpactPath))
+	for _, step := range f.ImpactPath {
+		if step.Node == nil {
+			continue
+		}
+		parts = append(parts, step.Node.Name)
+	}
+	return strings.Join(parts, " -> ")
 }
 
 func shortPathCwd(p string, cwd string) string {

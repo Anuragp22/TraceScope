@@ -79,9 +79,10 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 
 			// CONTAINS edge: file → function
 			gd.Edges = append(gd.Edges, Edge{
-				Source: fileID,
-				Target: funcID,
-				Type:   EdgeContains,
+				Source:     fileID,
+				Target:     funcID,
+				Type:       EdgeContains,
+				Confidence: EdgeConfidenceExact,
 			})
 
 			// Register in lookup maps
@@ -135,9 +136,10 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 
 			// CONTAINS edge: file → class
 			gd.Edges = append(gd.Edges, Edge{
-				Source: fileID,
-				Target: classID,
-				Type:   EdgeContains,
+				Source:     fileID,
+				Target:     classID,
+				Type:       EdgeContains,
+				Confidence: EdgeConfidenceExact,
 			})
 		}
 	}
@@ -181,9 +183,10 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				if classID, ok := classIDs[fn.Receiver]; ok {
 					funcID := makeFuncID(fr.FilePath, fn.Name, fn.Receiver, fn.StartLine)
 					gd.Edges = append(gd.Edges, Edge{
-						Source: classID,
-						Target: funcID,
-						Type:   EdgeContains,
+						Source:     classID,
+						Target:     funcID,
+						Type:       EdgeContains,
+						Confidence: EdgeConfidenceExact,
 					})
 				}
 			}
@@ -194,6 +197,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 			classID := makeClassID(fr.FilePath, cls.Name)
 			for _, baseName := range cls.Bases {
 				targetID := ""
+				confidence := EdgeConfidenceExact
 				// Try same-file first
 				if id, ok := classByFileName[fr.FilePath+":"+baseName]; ok {
 					targetID = id
@@ -206,7 +210,17 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				}
 				// Try any file (cross-file JS/TS/Python)
 				if targetID == "" {
-					targetID = uniqueID(classByName[baseName])
+					if id, status := resolveUnique(classByName[baseName]); id != "" {
+						targetID = id
+						confidence = EdgeConfidenceHeuristic
+					} else if status == resolutionAmbiguous {
+						gd.ResolutionStats.AmbiguousInheritance++
+					} else {
+						gd.ResolutionStats.UnresolvedInheritance++
+					}
+				}
+				if targetID == "" {
+					continue
 				}
 				if targetID != "" && targetID != classID {
 					edgeType := EdgeExtends
@@ -214,10 +228,16 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 						edgeType = EdgeExtends
 					}
 					gd.Edges = append(gd.Edges, Edge{
-						Source: classID,
-						Target: targetID,
-						Type:   edgeType,
+						Source:     classID,
+						Target:     targetID,
+						Type:       edgeType,
+						Confidence: confidence,
 					})
+					if confidence == EdgeConfidenceHeuristic {
+						gd.ResolutionStats.HeuristicInheritance++
+					} else {
+						gd.ResolutionStats.ExactInheritance++
+					}
 				}
 			}
 		}
@@ -234,9 +254,10 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 			targetFileID := b.resolveImport(fr, imp, fileNodeByPath, fileByDir, results)
 			if targetFileID != "" {
 				gd.Edges = append(gd.Edges, Edge{
-					Source: fileID,
-					Target: targetFileID,
-					Type:   EdgeImports,
+					Source:     fileID,
+					Target:     targetFileID,
+					Type:       EdgeImports,
+					Confidence: EdgeConfidenceExact,
 				})
 
 				// Build alias → target file mapping
@@ -257,8 +278,14 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 
 	for _, fr := range results {
 		for _, call := range fr.Calls {
-			targetID := b.resolveCall(fr, call, funcByName, funcByQualified, importMap, fileNodeByPath, nodeMap)
+			targetID, confidence, status := b.resolveCall(fr, call, funcByName, funcByQualified, importMap, fileNodeByPath, nodeMap)
 			if targetID == "" {
+				switch status {
+				case resolutionAmbiguous:
+					gd.ResolutionStats.AmbiguousCalls++
+				case resolutionUnresolved:
+					gd.ResolutionStats.UnresolvedCalls++
+				}
 				continue
 			}
 
@@ -270,10 +297,16 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 			}
 
 			gd.Edges = append(gd.Edges, Edge{
-				Source: callerID,
-				Target: targetID,
-				Type:   EdgeCalls,
+				Source:     callerID,
+				Target:     targetID,
+				Type:       EdgeCalls,
+				Confidence: confidence,
 			})
+			if confidence == EdgeConfidenceHeuristic {
+				gd.ResolutionStats.HeuristicCallEdges++
+			} else {
+				gd.ResolutionStats.ExactCallEdges++
+			}
 		}
 	}
 
@@ -325,9 +358,9 @@ func (b *Builder) resolveImport(fr *parser.FileResult, imp parser.Import, fileNo
 
 func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]string, results []*parser.FileResult) string {
 	// Go imports are package paths while graph nodes are file paths. Match each
-	// candidate's directory against the longest package-path suffix and only
-	// accept a unique best match.
-	bestIDs := []string{}
+	// candidate's directory against the longest package-path suffix. If exactly
+	// one package directory wins, return a deterministic representative file.
+	bestDirs := make(map[string][]string)
 	bestScore := 0
 	importPath := strings.Trim(imp.Path, "/")
 	importParts := strings.Split(importPath, "/")
@@ -344,14 +377,20 @@ func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]s
 			switch {
 			case score > bestScore:
 				bestScore = score
-				bestIDs = []string{id}
+				bestDirs = map[string][]string{dirPath: {id}}
 			case score == bestScore:
-				bestIDs = appendUnique(bestIDs, id)
+				bestDirs[dirPath] = appendUnique(bestDirs[dirPath], id)
 			}
 		}
 	}
-	sort.Strings(bestIDs)
-	return uniqueID(bestIDs)
+	if len(bestDirs) != 1 {
+		return ""
+	}
+	for _, ids := range bestDirs {
+		sort.Strings(ids)
+		return ids[0]
+	}
+	return ""
 }
 
 func (b *Builder) resolveJSImport(currentFile string, imp parser.Import, fileNodeByPath map[string]string) string {
@@ -487,82 +526,97 @@ func pythonPathMatch(filePath string, parts []string) bool {
 }
 
 // resolveCall tries to find the target function node for a call expression.
-func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string][]string, importMap map[string]map[string]string, fileNodeByPath map[string]string, nodeMap map[string]*Node) string {
+type resolutionStatus int
+
+const (
+	resolutionResolved resolutionStatus = iota
+	resolutionAmbiguous
+	resolutionUnresolved
+)
+
+func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, funcByName map[string][]string, funcByQualified map[string][]string, importMap map[string]map[string]string, fileNodeByPath map[string]string, nodeMap map[string]*Node) (string, EdgeConfidence, resolutionStatus) {
 	// If call has a receiver (e.g., pkg.Func, obj.Method)
 	if call.Receiver != "" {
-		// Try qualified lookup: receiver.name
+		if fileImports, ok := importMap[fr.FilePath]; ok {
+			if targetFileID, ok := fileImports[call.Receiver]; ok {
+				if targetNode, ok := nodeMap[targetFileID]; ok {
+					switch fr.Language {
+					case parser.LangGo:
+						qualKey := targetNode.Package + "." + call.Name
+						if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
+							return id, EdgeConfidenceExact, resolutionResolved
+						} else if status == resolutionAmbiguous {
+							return "", "", resolutionAmbiguous
+						}
+					case parser.LangJavaScript, parser.LangTypeScript:
+						qualKey := fileQualifier(targetNode.FilePath) + "." + call.Name
+						if id, status := resolveUnique(funcByQualified[qualKey]); id != "" {
+							return id, EdgeConfidenceExact, resolutionResolved
+						} else if status == resolutionAmbiguous {
+							return "", "", resolutionAmbiguous
+						}
+					}
+				}
+			}
+		}
+
+		// Fall back to receiver.name for method-like lookups. Treat this as
+		// heuristic because local variable receivers are not type-inferred.
 		key := call.Receiver + "." + call.Name
-		if id := uniqueID(funcByQualified[key]); id != "" {
-			return id
-		}
-
-		// For Go: try package.name via import map
-		if fr.Language == parser.LangGo {
-			if fileImports, ok := importMap[fr.FilePath]; ok {
-				if targetFileID, ok := fileImports[call.Receiver]; ok {
-					// Find the function in the target file's package
-					if targetNode, ok := nodeMap[targetFileID]; ok {
-						pkg := targetNode.Package
-						qualKey := pkg + "." + call.Name
-						if id := uniqueID(funcByQualified[qualKey]); id != "" {
-							return id
-						}
-					}
-				}
-			}
-		}
-
-		// For JS/TS: try import alias resolution
-		if fr.Language == parser.LangJavaScript || fr.Language == parser.LangTypeScript {
-			if fileImports, ok := importMap[fr.FilePath]; ok {
-				if targetFileID, ok := fileImports[call.Receiver]; ok {
-					// Find function in the imported file
-					baseName := ""
-					if targetNode, ok := nodeMap[targetFileID]; ok {
-						baseName = fileQualifier(targetNode.FilePath)
-					}
-					if baseName != "" {
-						qualKey := baseName + "." + call.Name
-						if id := uniqueID(funcByQualified[qualKey]); id != "" {
-							return id
-						}
-					}
-				}
-			}
+		if id, status := resolveUnique(funcByQualified[key]); id != "" {
+			return id, EdgeConfidenceHeuristic, resolutionResolved
+		} else if status == resolutionAmbiguous {
+			return "", "", resolutionAmbiguous
 		}
 	}
 
 	// Simple name match: try to find in same file first, then globally
 	// Skip init() — it's called implicitly by Go runtime, not by user code
 	if call.Name == "init" && fr.Language == parser.LangGo {
-		return ""
+		return "", "", resolutionUnresolved
 	}
 	if ids, ok := funcByName[call.Name]; ok {
 		// Prefer same-file match
+		var sameFileMatches []string
 		for _, id := range ids {
 			if node, ok := nodeMap[id]; ok {
 				if node.FilePath == fr.FilePath && !node.IsInit {
-					return id
+					sameFileMatches = appendUnique(sameFileMatches, id)
 				}
 			}
 		}
+		if id, status := resolveUnique(sameFileMatches); id != "" {
+			return id, EdgeConfidenceExact, resolutionResolved
+		} else if status == resolutionAmbiguous {
+			return "", "", resolutionAmbiguous
+		}
+
 		// Prefer same-package match (Go)
 		if fr.Language == parser.LangGo && fr.Package != "" {
+			var samePackageMatches []string
 			for _, id := range ids {
 				if node, ok := nodeMap[id]; ok {
 					if node.Package == fr.Package && !node.IsInit {
-						return id
+						samePackageMatches = appendUnique(samePackageMatches, id)
 					}
 				}
 			}
+			if id, status := resolveUnique(samePackageMatches); id != "" {
+				return id, EdgeConfidenceExact, resolutionResolved
+			} else if status == resolutionAmbiguous {
+				return "", "", resolutionAmbiguous
+			}
 		}
-		// Fall back to first match
+		// Fall back to a globally unique name match only.
 		if len(ids) == 1 {
-			return ids[0]
+			return ids[0], EdgeConfidenceHeuristic, resolutionResolved
+		}
+		if len(ids) > 1 {
+			return "", "", resolutionAmbiguous
 		}
 	}
 
-	return ""
+	return "", "", resolutionUnresolved
 }
 
 // findContainingFunction finds the function node that contains the given line in a file.
@@ -686,6 +740,17 @@ func uniqueID(ids []string) string {
 		return ids[0]
 	}
 	return ""
+}
+
+func resolveUnique(ids []string) (string, resolutionStatus) {
+	switch len(ids) {
+	case 0:
+		return "", resolutionUnresolved
+	case 1:
+		return ids[0], resolutionResolved
+	default:
+		return "", resolutionAmbiguous
+	}
 }
 
 func longestImportSuffixMatch(dirPath string, importParts []string) int {

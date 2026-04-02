@@ -43,6 +43,15 @@ func TestBlastRadiusAnalyzer_BasicPipeline(t *testing.T) {
 	for _, af := range result.AffectedFunctions {
 		if af.Node.Name == "caller" {
 			found = true
+			if af.Confidence != graph.EdgeConfidenceExact {
+				t.Fatalf("expected caller confidence EXACT, got %q", af.Confidence)
+			}
+			if len(af.ImpactPath) != 2 {
+				t.Fatalf("expected 2-step impact path, got %d", len(af.ImpactPath))
+			}
+			if af.ImpactPath[0].Node.Name != "Run" || af.ImpactPath[1].Node.Name != "caller" {
+				t.Fatalf("unexpected impact path: %v", af.ImpactPath)
+			}
 		}
 	}
 	if !found {

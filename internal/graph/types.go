@@ -20,6 +20,14 @@ const (
 	EdgeImplements EdgeType = "IMPLEMENTS"
 )
 
+// EdgeConfidence describes how trustworthy a resolved edge is.
+type EdgeConfidence string
+
+const (
+	EdgeConfidenceExact     EdgeConfidence = "EXACT"
+	EdgeConfidenceHeuristic EdgeConfidence = "HEURISTIC"
+)
+
 // Node represents a node in the dependency graph.
 type Node struct {
 	ID        string   `json:"id"`
@@ -37,9 +45,23 @@ type Node struct {
 
 // Edge represents an edge in the dependency graph.
 type Edge struct {
-	Source string   `json:"source"`
-	Target string   `json:"target"`
-	Type   EdgeType `json:"type"`
+	Source     string         `json:"source"`
+	Target     string         `json:"target"`
+	Type       EdgeType       `json:"type"`
+	Confidence EdgeConfidence `json:"confidence,omitempty"`
+}
+
+// ResolutionStats captures how many references resolved cleanly vs heuristically
+// or were skipped because the target was ambiguous/unknown.
+type ResolutionStats struct {
+	ExactCallEdges        int `json:"exact_call_edges,omitempty"`
+	HeuristicCallEdges    int `json:"heuristic_call_edges,omitempty"`
+	AmbiguousCalls        int `json:"ambiguous_calls,omitempty"`
+	UnresolvedCalls       int `json:"unresolved_calls,omitempty"`
+	ExactInheritance      int `json:"exact_inheritance_edges,omitempty"`
+	HeuristicInheritance  int `json:"heuristic_inheritance_edges,omitempty"`
+	AmbiguousInheritance  int `json:"ambiguous_inheritance,omitempty"`
+	UnresolvedInheritance int `json:"unresolved_inheritance,omitempty"`
 }
 
 // FileMetadata stores per-file indexing metadata for incremental indexing.
@@ -52,10 +74,11 @@ type FileMetadata struct {
 
 // GraphData is the serializable representation of the full dependency graph.
 type GraphData struct {
-	Nodes        []Node                   `json:"nodes"`
-	Edges        []Edge                   `json:"edges"`
-	RootPath     string                   `json:"root_path,omitempty"`
-	FileMetadata map[string]*FileMetadata `json:"file_metadata,omitempty"`
+	Nodes           []Node                   `json:"nodes"`
+	Edges           []Edge                   `json:"edges"`
+	RootPath        string                   `json:"root_path,omitempty"`
+	FileMetadata    map[string]*FileMetadata `json:"file_metadata,omitempty"`
+	ResolutionStats ResolutionStats          `json:"resolution_stats,omitempty"`
 }
 
 // Metadata holds graph statistics.

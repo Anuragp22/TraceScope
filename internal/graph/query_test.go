@@ -62,3 +62,32 @@ func TestComputeBlastRadius_BoundedDepth(t *testing.T) {
 		t.Error("'b' should be in blast radius with depth 1")
 	}
 }
+
+func TestComputeBlastRadius_TracksPathConfidenceAndParent(t *testing.T) {
+	gd := &GraphData{
+		Nodes: []Node{
+			{ID: "seed", Type: NodeFunction, Name: "seed"},
+			{ID: "mid", Type: NodeFunction, Name: "mid"},
+			{ID: "caller", Type: NodeFunction, Name: "caller"},
+		},
+		Edges: []Edge{
+			{Source: "mid", Target: "seed", Type: EdgeCalls, Confidence: EdgeConfidenceExact},
+			{Source: "caller", Target: "mid", Type: EdgeCalls, Confidence: EdgeConfidenceHeuristic},
+		},
+	}
+
+	result := ComputeBlastRadius(gd, []string{"seed"}, 5)
+
+	if result.Parent["mid"] != "seed" {
+		t.Fatalf("expected mid parent seed, got %q", result.Parent["mid"])
+	}
+	if result.Parent["caller"] != "mid" {
+		t.Fatalf("expected caller parent mid, got %q", result.Parent["caller"])
+	}
+	if result.Confidence["mid"] != EdgeConfidenceExact {
+		t.Fatalf("expected exact confidence for mid, got %q", result.Confidence["mid"])
+	}
+	if result.Confidence["caller"] != EdgeConfidenceHeuristic {
+		t.Fatalf("expected heuristic confidence for caller, got %q", result.Confidence["caller"])
+	}
+}

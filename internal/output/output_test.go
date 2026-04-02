@@ -22,8 +22,13 @@ func TestFormatMarkdownComment(t *testing.T) {
 				Node:        &graph.Node{Name: "handleRequest", FilePath: "src/handler.go", StartLine: 25},
 				Depth:       1,
 				Risk:        analyzer.RiskHigh,
+				Confidence:  graph.EdgeConfidenceExact,
 				CallerCount: 5,
 				Reason:      "exported function with many callers",
+				ImpactPath: []graph.PathStep{
+					{Node: &graph.Node{Name: "main"}},
+					{Node: &graph.Node{Name: "handleRequest"}, EdgeType: "CALLS"},
+				},
 			},
 			{
 				Node:        &graph.Node{Name: "helper", FilePath: "src/util.go", StartLine: 10},
@@ -59,8 +64,14 @@ func TestFormatMarkdownComment(t *testing.T) {
 	if !strings.Contains(md, "High Risk") {
 		t.Error("missing high risk section")
 	}
+	if !strings.Contains(md, "Reviewer Focus") {
+		t.Error("missing reviewer focus section")
+	}
 	if !strings.Contains(md, "`handleRequest`") {
 		t.Error("missing affected function name")
+	}
+	if !strings.Contains(md, "`main` -> `handleRequest`") {
+		t.Error("missing impact path")
 	}
 
 	// Check low risk is in collapsible section

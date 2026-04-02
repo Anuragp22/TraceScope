@@ -19,27 +19,30 @@ const (
 
 // AffectedFunction is a function in the blast radius with its risk assessment.
 type AffectedFunction struct {
-	Node         *graph.Node `json:"node"`
-	Depth        int         `json:"depth"`
-	Risk         RiskLevel   `json:"risk"`
-	CallerCount  int         `json:"caller_count"`
-	Reason       string      `json:"reason"`
-	LastAuthor   string      `json:"last_author,omitempty"`
-	LastEmail    string      `json:"last_email,omitempty"`
-	LastModified string      `json:"last_modified,omitempty"`
+	Node         *graph.Node          `json:"node"`
+	Depth        int                  `json:"depth"`
+	Risk         RiskLevel            `json:"risk"`
+	Confidence   graph.EdgeConfidence `json:"confidence,omitempty"`
+	CallerCount  int                  `json:"caller_count"`
+	Reason       string               `json:"reason"`
+	ImpactPath   []graph.PathStep     `json:"impact_path,omitempty"`
+	LastAuthor   string               `json:"last_author,omitempty"`
+	LastEmail    string               `json:"last_email,omitempty"`
+	LastModified string               `json:"last_modified,omitempty"`
 }
 
 // AnalysisResult holds the complete blast radius analysis.
 type AnalysisResult struct {
-	ChangedFunctions  []ChangedFunction  `json:"changed_functions"`
-	AffectedFunctions []AffectedFunction `json:"affected_functions"`
-	ChangedFiles      []diff.ChangedFile `json:"changed_files"`
-	TotalNodes        int                `json:"total_nodes"`
-	TotalEdges        int                `json:"total_edges"`
-	MaxDepth          int                `json:"max_depth"`
-	TotalAffected     int                `json:"total_affected,omitempty"`
-	TopN              int                `json:"top_n,omitempty"`
-	Ownership         interface{}        `json:"ownership,omitempty"`
+	ChangedFunctions  []ChangedFunction     `json:"changed_functions"`
+	AffectedFunctions []AffectedFunction    `json:"affected_functions"`
+	ChangedFiles      []diff.ChangedFile    `json:"changed_files"`
+	ResolutionStats   graph.ResolutionStats `json:"resolution_stats,omitempty"`
+	TotalNodes        int                   `json:"total_nodes"`
+	TotalEdges        int                   `json:"total_edges"`
+	MaxDepth          int                   `json:"max_depth"`
+	TotalAffected     int                   `json:"total_affected,omitempty"`
+	TopN              int                   `json:"top_n,omitempty"`
+	Ownership         interface{}           `json:"ownership,omitempty"`
 }
 
 // RiskExitError is returned when the analysis completes but risk was found.
@@ -88,10 +91,11 @@ func NewBlastRadiusAnalyzer(graphData *graph.GraphData, maxDepth int, scorer *Ri
 // Analyze runs the full analysis: diff → functions → blast radius → risk scoring.
 func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *AnalysisResult {
 	result := &AnalysisResult{
-		ChangedFiles: changedFiles,
-		TotalNodes:   len(a.graphData.Nodes),
-		TotalEdges:   len(a.graphData.Edges),
-		MaxDepth:     a.maxDepth,
+		ChangedFiles:    changedFiles,
+		ResolutionStats: a.graphData.ResolutionStats,
+		TotalNodes:      len(a.graphData.Nodes),
+		TotalEdges:      len(a.graphData.Edges),
+		MaxDepth:        a.maxDepth,
 	}
 
 	// Step 1: Map diff to changed functions
@@ -143,6 +147,7 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 
 	// Step 4: Build caller count maps (total and production-only)
 	callerCount, prodCallerCount := buildCallerCountMaps(a.graphData)
+	nodeMap := buildNodeLookup(a.graphData)
 
 	// Step 5: Score risk for affected nodes
 	for id, node := range br.AffectedNodes {
@@ -162,8 +167,10 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 			Node:        node,
 			Depth:       depth,
 			Risk:        risk,
+			Confidence:  br.Confidence[id],
 			CallerCount: count,
 			Reason:      reason,
+			ImpactPath:  buildImpactPath(id, br.Parent, br.ParentEdge, nodeMap),
 		})
 	}
 
@@ -182,6 +189,30 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 	return result
 }
 
+func buildImpactPath(nodeID string, parent map[string]string, parentEdge map[string]graph.EdgeType, nodeMap map[string]*graph.Node) []graph.PathStep {
+	var reversed []graph.PathStep
+	for id := nodeID; id != ""; id = parent[id] {
+		node := nodeMap[id]
+		if node == nil {
+			break
+		}
+		step := graph.PathStep{Node: node}
+		if edgeType, ok := parentEdge[id]; ok {
+			step.EdgeType = string(edgeType)
+		}
+		reversed = append(reversed, step)
+	}
+
+	if len(reversed) <= 1 {
+		return nil
+	}
+
+	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = reversed[j], reversed[i]
+	}
+	return reversed
+}
+
 func riskOrder(r RiskLevel) int {
 	switch r {
 	case RiskHigh:
@@ -196,10 +227,7 @@ func riskOrder(r RiskLevel) int {
 
 // buildCallerCountMaps counts total and production (non-test) callers for each function.
 func buildCallerCountMaps(gd *graph.GraphData) (map[string]int, map[string]int) {
-	nodeMap := make(map[string]*graph.Node, len(gd.Nodes))
-	for i := range gd.Nodes {
-		nodeMap[gd.Nodes[i].ID] = &gd.Nodes[i]
-	}
+	nodeMap := buildNodeLookup(gd)
 
 	total := make(map[string]int)
 	prod := make(map[string]int)
@@ -212,4 +240,12 @@ func buildCallerCountMaps(gd *graph.GraphData) (map[string]int, map[string]int) 
 		}
 	}
 	return total, prod
+}
+
+func buildNodeLookup(gd *graph.GraphData) map[string]*graph.Node {
+	nodeMap := make(map[string]*graph.Node, len(gd.Nodes))
+	for i := range gd.Nodes {
+		nodeMap[gd.Nodes[i].ID] = &gd.Nodes[i]
+	}
+	return nodeMap
 }

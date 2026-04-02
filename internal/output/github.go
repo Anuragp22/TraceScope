@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anurag/tracescope/internal/analyzer"
+	"github.com/anurag/tracescope/internal/graph"
 	"github.com/anurag/tracescope/internal/ownership"
 )
 
@@ -33,7 +34,18 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 	}
 	b.WriteString(fmt.Sprintf("| Affected functions | %d |\n", total))
 	b.WriteString(fmt.Sprintf("| Risk | %d high, %d medium, %d low |\n", len(high), len(medium), len(low)))
+	b.WriteString(fmt.Sprintf("| Resolution confidence | %d exact, %d heuristic, %d ambiguous skipped, %d unresolved |\n",
+		result.ResolutionStats.ExactCallEdges,
+		result.ResolutionStats.HeuristicCallEdges,
+		result.ResolutionStats.AmbiguousCalls,
+		result.ResolutionStats.UnresolvedCalls,
+	))
 	b.WriteString(fmt.Sprintf("| Max depth | %d |\n\n", result.MaxDepth))
+
+	if len(result.AffectedFunctions) > 0 {
+		b.WriteString("### Reviewer Focus\n\n")
+		writeTopRisksMD(&b, result.AffectedFunctions, 5)
+	}
 
 	// Risk sections
 	if len(high) > 0 {
@@ -77,13 +89,69 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 }
 
 func writeAffectedMD(b *strings.Builder, funcs []analyzer.AffectedFunction) {
-	b.WriteString("| Function | File | Callers | Depth |\n")
-	b.WriteString("|----------|------|---------|-------|\n")
+	b.WriteString("| Function | File | Callers | Depth | Confidence | Why path |\n")
+	b.WriteString("|----------|------|---------|-------|------------|----------|\n")
 	for _, f := range funcs {
-		b.WriteString(fmt.Sprintf("| `%s` | `%s:%d` | %d | %d |\n",
-			f.Node.Name, f.Node.FilePath, f.Node.StartLine, f.CallerCount, f.Depth))
+		if f.Node == nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("| `%s` | `%s:%d` | %d | %d | %s | %s |\n",
+			f.Node.Name,
+			f.Node.FilePath,
+			f.Node.StartLine,
+			f.CallerCount,
+			f.Depth,
+			formatConfidence(f.Confidence),
+			formatImpactPathMD(f),
+		))
 	}
 	b.WriteString("\n")
+}
+
+func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limit int) {
+	if limit > len(funcs) {
+		limit = len(funcs)
+	}
+	b.WriteString("| Risk | Function | Why | Confidence | Impact path |\n")
+	b.WriteString("|------|----------|-----|------------|-------------|\n")
+	for i := 0; i < limit; i++ {
+		f := funcs[i]
+		if f.Node == nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("| %s | `%s` | %s | %s | %s |\n",
+			f.Risk,
+			f.Node.Name,
+			f.Reason,
+			formatConfidence(f.Confidence),
+			formatImpactPathMD(f),
+		))
+	}
+	b.WriteString("\n")
+}
+
+func formatConfidence(confidence graph.EdgeConfidence) string {
+	if confidence == graph.EdgeConfidenceHeuristic {
+		return "heuristic"
+	}
+	return "exact"
+}
+
+func formatImpactPathMD(f analyzer.AffectedFunction) string {
+	if len(f.ImpactPath) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(f.ImpactPath))
+	for _, step := range f.ImpactPath {
+		if step.Node == nil {
+			continue
+		}
+		parts = append(parts, "`"+step.Node.Name+"`")
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " -> ")
 }
 
 func groupByRiskMD(funcs []analyzer.AffectedFunction) (high, medium, low []analyzer.AffectedFunction) {
