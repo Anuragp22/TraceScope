@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { BarChart3, GitBranch, Network, Flame, Github, LogOut } from "lucide-react";
 import { signIn, signOut, useSession } from "@/lib/auth-client";
@@ -52,9 +53,11 @@ export function Nav() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 px-2">
               {session.user.image && (
-                <img
+                <Image
                   src={session.user.image}
                   alt=""
+                  width={24}
+                  height={24}
                   className="h-6 w-6 rounded-full"
                 />
               )}
