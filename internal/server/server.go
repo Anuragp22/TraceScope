@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/anurag/tracescope/internal/analyzer"
 	diffpkg "github.com/anurag/tracescope/internal/diff"
@@ -23,6 +25,7 @@ import (
 
 // Server holds the state for the TraceScope API.
 type Server struct {
+	mu        sync.RWMutex
 	graphData *graph.GraphData
 	graphFile string
 	repoRoot  string
@@ -86,26 +89,28 @@ func (s *Server) Handler() http.Handler {
 
 // GET /api/graph — returns full graph (nodes + edges)
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	graphData := s.graphSnapshot()
 	type response struct {
 		Nodes []graph.Node `json:"nodes"`
 		Edges []graph.Edge `json:"edges"`
 	}
-	writeJSON(w, response{Nodes: s.graphData.Nodes, Edges: s.graphData.Edges})
+	writeJSON(w, response{Nodes: graphData.Nodes, Edges: graphData.Edges})
 }
 
 // GET /api/stats — returns graph statistics
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	graphData := s.graphSnapshot()
 	nodeTypes := map[string]int{}
 	edgeTypes := map[string]int{}
 	languages := map[string]int{}
 
-	for _, n := range s.graphData.Nodes {
+	for _, n := range graphData.Nodes {
 		nodeTypes[string(n.Type)]++
 		if n.Language != "" {
 			languages[n.Language]++
 		}
 	}
-	for _, e := range s.graphData.Edges {
+	for _, e := range graphData.Edges {
 		edgeTypes[string(e.Type)]++
 	}
 
@@ -132,7 +137,7 @@ func (s *Server) handleHotspots(w http.ResponseWriter, r *http.Request) {
 		langFilter = map[string]bool{lang: true}
 	}
 
-	result := analyzer.ComputeHotspots(s.graphData, analyzer.HotspotsOptions{
+	result := analyzer.ComputeHotspots(s.graphSnapshot(), analyzer.HotspotsOptions{
 		TopN:      topN,
 		Languages: langFilter,
 	})
@@ -166,7 +171,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		depth = d
 	}
 
-	ba := analyzer.NewBlastRadiusAnalyzer(s.graphData, depth, s.scorer)
+	ba := analyzer.NewBlastRadiusAnalyzer(s.graphSnapshot(), depth, s.scorer)
 	result := ba.Analyze(changedFiles)
 
 	// Enrich with ownership if repo root is available
@@ -202,19 +207,20 @@ func (s *Server) handleWhy(w http.ResponseWriter, r *http.Request) {
 	reverse := r.URL.Query().Get("reverse") == "true"
 
 	// Resolve function names
-	fromMatches := graph.FindNodesByName(s.graphData, from)
+	graphData := s.graphSnapshot()
+	fromMatches := graph.FindNodesByName(graphData, from)
 	if len(fromMatches) == 0 {
 		httpError(w, fmt.Sprintf("no function matching %q", from), http.StatusNotFound)
 		return
 	}
 
-	toMatches := graph.FindNodesByName(s.graphData, to)
+	toMatches := graph.FindNodesByName(graphData, to)
 	if len(toMatches) == 0 {
 		httpError(w, fmt.Sprintf("no function matching %q", to), http.StatusNotFound)
 		return
 	}
 
-	result := graph.FindShortestPath(s.graphData, fromMatches[0].Node.ID, toMatches[0].Node.ID, reverse)
+	result := graph.FindShortestPath(graphData, fromMatches[0].Node.ID, toMatches[0].Node.ID, reverse)
 	writeJSON(w, result)
 }
 
@@ -225,7 +231,7 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "reloading graph: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.graphData = gd
+	s.replaceGraph(gd)
 	log.Info().Int("nodes", len(gd.Nodes)).Int("edges", len(gd.Edges)).Msg("graph reloaded")
 	writeJSON(w, map[string]interface{}{
 		"status": "reloaded",
@@ -236,7 +242,7 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 
 // WS /api/ws — WebSocket for streaming updates
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: websocketOriginAllowed,
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -248,10 +254,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	// Send initial stats
+	graphData := s.graphSnapshot()
 	msg := map[string]interface{}{
 		"type":  "connected",
-		"nodes": len(s.graphData.Nodes),
-		"edges": len(s.graphData.Edges),
+		"nodes": len(graphData.Nodes),
+		"edges": len(graphData.Edges),
 	}
 	conn.WriteJSON(msg)
 
@@ -336,7 +343,7 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
 		depth = d
 	}
 
-	ba := analyzer.NewBlastRadiusAnalyzer(s.graphData, depth, s.scorer)
+	ba := analyzer.NewBlastRadiusAnalyzer(s.graphSnapshot(), depth, s.scorer)
 	result := ba.Analyze(changedFiles)
 
 	// Enrich with ownership
@@ -371,6 +378,37 @@ func httpError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func (s *Server) graphSnapshot() *graph.GraphData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.graphData
+}
+
+func (s *Server) replaceGraph(graphData *graph.GraphData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.graphData = graphData
+}
+
+func websocketOriginAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	switch parsed.Host {
+	case "localhost:3000", "localhost:3001", "127.0.0.1:3000", "127.0.0.1:3001":
+		return true
+	default:
+		return false
+	}
 }
 
 // ListenAndServe starts the HTTP server.
