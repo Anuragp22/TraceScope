@@ -243,11 +243,23 @@ func (b *scipGraphBuilder) registerReferenceEdges(documents []*scip.Document) {
 
 		scopes := b.definitionScopes(doc)
 		for _, occ := range doc.GetOccurrences() {
-			if occ.GetSymbol() == "" || isSCIPDefinitionRole(occ.GetSymbolRoles()) || isSCIPImportRole(occ.GetSymbolRoles()) {
+			if occ.GetSymbol() == "" || isSCIPDefinitionRole(occ.GetSymbolRoles()) {
 				continue
 			}
 			targetID := b.symbolNodeByID[occ.GetSymbol()]
 			if targetID == "" {
+				continue
+			}
+			if isSCIPImportRole(occ.GetSymbolRoles()) {
+				target := b.nodeMap[targetID]
+				if target == nil {
+					continue
+				}
+				targetFileID := b.fileNodeByPath[canonicalPath(target.FilePath)]
+				if targetFileID == "" || targetFileID == fileID {
+					continue
+				}
+				b.addEdge(fileID, targetFileID, EdgeImports, EdgeConfidenceExact)
 				continue
 			}
 			sourceID := fileID
@@ -567,7 +579,16 @@ func isProjectSCIPDocument(relativePath string) bool {
 	if path == "" || path == "." || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "/") {
 		return false
 	}
-	return !strings.Contains(path, ":/")
+	if strings.Contains(path, ":/") {
+		return false
+	}
+	lower := strings.ToLower(path)
+	for _, segment := range []string{".next", "node_modules", "dist", "build", "coverage"} {
+		if lower == segment || strings.HasPrefix(lower, segment+"/") || strings.Contains(lower, "/"+segment+"/") {
+			return false
+		}
+	}
+	return true
 }
 
 func sourceRootForSCIPIndex(indexPath string) string {

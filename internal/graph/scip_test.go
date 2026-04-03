@@ -565,6 +565,102 @@ type Validator interface {
 	}
 }
 
+func TestBuildFromSCIP_MapsImportOccurrencesToImportEdges(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{
+			{
+				RelativePath: "service.ts",
+				Language:     "typescript",
+				Occurrences: []*scip.Occurrence{{
+					Range:       []int32{0, 16, 23},
+					Symbol:      "scip-typescript npm demo 1.0.0 `service.ts`/run().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				}},
+				Symbols: []*scip.SymbolInformation{{
+					Symbol:      "scip-typescript npm demo 1.0.0 `service.ts`/run().",
+					Kind:        scip.SymbolInformation_Function,
+					DisplayName: "run",
+				}},
+			},
+			{
+				RelativePath: "app.ts",
+				Language:     "typescript",
+				Occurrences: []*scip.Occurrence{
+					{
+						Range:       []int32{0, 9, 12},
+						Symbol:      "scip-typescript npm demo 1.0.0 `service.ts`/run().",
+						SymbolRoles: int32(scip.SymbolRole_Import),
+					},
+					{
+						Range:       []int32{2, 16, 20},
+						Symbol:      "scip-typescript npm demo 1.0.0 `app.ts`/main().",
+						SymbolRoles: int32(scip.SymbolRole_Definition),
+					},
+					{
+						Range:  []int32{3, 2, 5},
+						Symbol: "scip-typescript npm demo 1.0.0 `service.ts`/run().",
+					},
+				},
+				Symbols: []*scip.SymbolInformation{{
+					Symbol:      "scip-typescript npm demo 1.0.0 `app.ts`/main().",
+					Kind:        scip.SymbolInformation_Function,
+					DisplayName: "main",
+				}},
+			},
+		},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	appID := makeFileID("app.ts")
+	serviceID := makeFileID("service.ts")
+	if !hasEdge(gd, appID, serviceID, EdgeImports) {
+		t.Fatal("expected app.ts -> service.ts IMPORTS edge from SCIP import occurrence")
+	}
+}
+
+func TestBuildFromSCIP_SkipsGeneratedNextDocuments(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{
+			{
+				RelativePath: ".next/server/app/page.js",
+				Language:     "javascript",
+				Occurrences: []*scip.Occurrence{{
+					Range:       []int32{0, 9, 15},
+					Symbol:      "scip-typescript npm demo 1.0.0 `.next/server/app/page.js`/render().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				}},
+			},
+			{
+				RelativePath: "app/page.tsx",
+				Language:     "typescript",
+				Occurrences: []*scip.Occurrence{{
+					Range:       []int32{0, 24, 28},
+					Symbol:      "scip-typescript npm demo 1.0.0 `app/page.tsx`/Page().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				}},
+			},
+		},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	if findNodeIDByNameAndFile(gd, "render", ".next/server/app/page.js") != "" {
+		t.Fatal("expected .next generated document to be skipped")
+	}
+	if findNodeIDByNameAndFile(gd, "Page", "app/page.tsx") == "" {
+		t.Fatal("expected source document to remain indexed")
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {
