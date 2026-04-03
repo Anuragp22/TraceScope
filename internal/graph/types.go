@@ -89,6 +89,7 @@ type GraphData struct {
 	Nodes            []Node                   `json:"nodes"`
 	Edges            []Edge                   `json:"edges"`
 	RootPath         string                   `json:"root_path,omitempty"`
+	IndexSource      string                   `json:"index_source,omitempty"`
 	FileMetadata     map[string]*FileMetadata `json:"file_metadata,omitempty"`
 	ResolutionStats  ResolutionStats          `json:"resolution_stats,omitempty"`
 	ResolutionIssues []ResolutionIssue        `json:"resolution_issues,omitempty"`
