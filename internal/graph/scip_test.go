@@ -269,6 +269,92 @@ func TestBuildFromSCIPFiles_MergesMultipleIndexes(t *testing.T) {
 	}
 }
 
+func TestBuildFromSCIP_MapsInheritanceRelationshipsAndDedupesReferences(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{
+			{
+				RelativePath: "types.ts",
+				Language:     "typescript",
+				Occurrences: []*scip.Occurrence{
+					{
+						Range:       []int32{0, 13, 17},
+						Symbol:      "scip-typescript npm demo 1.0.0 `types.ts`/Base#",
+						SymbolRoles: int32(scip.SymbolRole_Definition),
+					},
+					{
+						Range:       []int32{1, 17, 22},
+						Symbol:      "scip-typescript npm demo 1.0.0 `types.ts`/Child#",
+						SymbolRoles: int32(scip.SymbolRole_Definition),
+					},
+					{
+						Range:  []int32{1, 25, 29},
+						Symbol: "scip-typescript npm demo 1.0.0 `types.ts`/Base#",
+					},
+				},
+				Symbols: []*scip.SymbolInformation{
+					{
+						Symbol:      "scip-typescript npm demo 1.0.0 `types.ts`/Base#",
+						Kind:        scip.SymbolInformation_Class,
+						DisplayName: "Base",
+					},
+					{
+						Symbol:      "scip-typescript npm demo 1.0.0 `types.ts`/Child#",
+						Kind:        scip.SymbolInformation_Class,
+						DisplayName: "Child",
+						Relationships: []*scip.Relationship{{
+							Symbol:      "scip-typescript npm demo 1.0.0 `types.ts`/Base#",
+							IsReference: true,
+						}},
+					},
+				},
+			},
+			{
+				RelativePath: "app.ts",
+				Language:     "typescript",
+				Occurrences: []*scip.Occurrence{
+					{
+						Range:       []int32{0, 16, 21},
+						Symbol:      "scip-typescript npm demo 1.0.0 `app.ts`/start().",
+						SymbolRoles: int32(scip.SymbolRole_Definition),
+					},
+					{
+						Range:  []int32{1, 6, 11},
+						Symbol: "scip-typescript npm demo 1.0.0 `types.ts`/Child#",
+					},
+				},
+				Symbols: []*scip.SymbolInformation{{
+					Symbol:      "scip-typescript npm demo 1.0.0 `app.ts`/start().",
+					Kind:        scip.SymbolInformation_Function,
+					DisplayName: "start",
+					Relationships: []*scip.Relationship{{
+						Symbol:      "scip-typescript npm demo 1.0.0 `types.ts`/Child#",
+						IsReference: true,
+					}},
+				}},
+			},
+		},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	baseID := findNodeIDByNameAndFile(gd, "Base", "types.ts")
+	childID := findNodeIDByNameAndFile(gd, "Child", "types.ts")
+	startID := findNodeIDByNameAndFile(gd, "start", "app.ts")
+	if baseID == "" || childID == "" || startID == "" {
+		t.Fatalf("expected Base/Child/start nodes, got %+v", gd.Nodes)
+	}
+	if !hasEdge(gd, childID, baseID, EdgeExtends) {
+		t.Fatal("expected Child -> Base EXTENDS edge from SCIP relationship")
+	}
+	if countEdges(gd, startID, childID, EdgeCalls) != 1 {
+		t.Fatalf("expected one deduped start -> Child CALLS edge, got %d", countEdges(gd, startID, childID, EdgeCalls))
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {
@@ -304,6 +390,16 @@ func findNodeByName(nodes map[string]*Node, name string) *Node {
 		}
 	}
 	return nil
+}
+
+func countEdges(gd *GraphData, sourceID, targetID string, edgeType EdgeType) int {
+	count := 0
+	for _, edge := range gd.Edges {
+		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {
+			count++
+		}
+	}
+	return count
 }
 
 func writeSCIPIndexFixture(t *testing.T, indexPath string, index *scip.Index) {

@@ -38,6 +38,7 @@ func BuildFromSCIPFiles(indexPaths []string) (*GraphData, error) {
 		fileNodeByPath: map[string]string{},
 		symbolNodeByID: map[string]string{},
 		symbolInfoByID: map[string]*scip.SymbolInformation{},
+		edgeSet:        map[string]struct{}{},
 	}
 	builder.collectSymbolInfo(documents, externalSymbols)
 	builder.registerDocuments(documents)
@@ -67,6 +68,7 @@ type scipGraphBuilder struct {
 	fileNodeByPath map[string]string
 	symbolNodeByID map[string]string
 	symbolInfoByID map[string]*scip.SymbolInformation
+	edgeSet        map[string]struct{}
 }
 
 type scipDefinitionScope struct {
@@ -150,12 +152,7 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 					IsExport:  scip.IsGlobalSymbol(symbol),
 					IsTest:    isSCIPTestFile(filePath),
 				}
-				b.graphData.Edges = append(b.graphData.Edges, Edge{
-					Source:     fileID,
-					Target:     nodeID,
-					Type:       EdgeContains,
-					Confidence: EdgeConfidenceExact,
-				})
+				b.addEdge(fileID, nodeID, EdgeContains, EdgeConfidenceExact)
 			}
 			b.symbolNodeByID[symbol] = nodeID
 		}
@@ -179,12 +176,7 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 		if parent == nil || parent.Type != NodeClass {
 			continue
 		}
-		b.graphData.Edges = append(b.graphData.Edges, Edge{
-			Source:     parentID,
-			Target:     nodeID,
-			Type:       EdgeContains,
-			Confidence: EdgeConfidenceExact,
-		})
+		b.addEdge(parentID, nodeID, EdgeContains, EdgeConfidenceExact)
 	}
 }
 
@@ -200,36 +192,17 @@ func (b *scipGraphBuilder) registerSymbolRelationships() {
 			if targetID == "" || targetID == sourceID {
 				continue
 			}
-			edgeType := EdgeCalls
-			switch {
-			case rel.GetIsImplementation():
-				edgeType = EdgeImplements
-			case rel.GetIsReference():
-				edgeType = EdgeCalls
-			case rel.GetIsTypeDefinition():
-				edgeType = EdgeExtends
-			default:
+			target := b.nodeMap[targetID]
+			edgeType, ok := scipRelationshipEdgeType(source, target, rel)
+			if !ok {
 				continue
 			}
-			if source.Type == NodeClass && edgeType == EdgeCalls {
-				edgeType = EdgeExtends
-			}
-			b.graphData.Edges = append(b.graphData.Edges, Edge{
-				Source:     sourceID,
-				Target:     targetID,
-				Type:       edgeType,
-				Confidence: EdgeConfidenceExact,
-			})
+			b.addEdge(sourceID, targetID, edgeType, EdgeConfidenceExact)
 		}
 	}
 }
 
 func (b *scipGraphBuilder) registerReferenceEdges(documents []*scip.Document) {
-	edgeSet := map[string]struct{}{}
-	for _, edge := range b.graphData.Edges {
-		edgeSet[edgeKey(edge.Source, edge.Target, edge.Type)] = struct{}{}
-	}
-
 	for _, doc := range documents {
 		filePath := canonicalPath(doc.GetRelativePath())
 		fileID := b.fileNodeByPath[filePath]
@@ -254,20 +227,31 @@ func (b *scipGraphBuilder) registerReferenceEdges(documents []*scip.Document) {
 			if sourceID == targetID {
 				continue
 			}
-
-			key := edgeKey(sourceID, targetID, EdgeCalls)
-			if _, exists := edgeSet[key]; exists {
-				continue
-			}
-			edgeSet[key] = struct{}{}
-			b.graphData.Edges = append(b.graphData.Edges, Edge{
-				Source:     sourceID,
-				Target:     targetID,
-				Type:       EdgeCalls,
-				Confidence: EdgeConfidenceExact,
-			})
-			b.graphData.ResolutionStats.ExactCallEdges++
+			b.addEdge(sourceID, targetID, EdgeCalls, EdgeConfidenceExact)
 		}
+	}
+}
+
+func (b *scipGraphBuilder) addEdge(sourceID, targetID string, edgeType EdgeType, confidence EdgeConfidence) {
+	key := edgeKey(sourceID, targetID, edgeType)
+	if _, exists := b.edgeSet[key]; exists {
+		return
+	}
+	b.edgeSet[key] = struct{}{}
+	b.graphData.Edges = append(b.graphData.Edges, Edge{
+		Source:     sourceID,
+		Target:     targetID,
+		Type:       edgeType,
+		Confidence: confidence,
+	})
+	if confidence != EdgeConfidenceExact {
+		return
+	}
+	switch edgeType {
+	case EdgeCalls:
+		b.graphData.ResolutionStats.ExactCallEdges++
+	case EdgeExtends, EdgeImplements:
+		b.graphData.ResolutionStats.ExactInheritance++
 	}
 }
 
@@ -398,6 +382,26 @@ func enclosingSCIPScopeID(scopes []scipDefinitionScope, line int, targetID strin
 
 func edgeKey(sourceID, targetID string, edgeType EdgeType) string {
 	return sourceID + "|" + targetID + "|" + string(edgeType)
+}
+
+func scipRelationshipEdgeType(source, target *Node, rel *scip.Relationship) (EdgeType, bool) {
+	if source == nil || target == nil || rel == nil {
+		return "", false
+	}
+	switch {
+	case rel.GetIsImplementation() && source.Type == NodeClass && target.Type == NodeClass:
+		return EdgeImplements, true
+	case rel.GetIsTypeDefinition() && source.Type == NodeClass && target.Type == NodeClass:
+		return EdgeExtends, true
+	case rel.GetIsReference() && source.Type == NodeClass && target.Type == NodeClass:
+		return EdgeExtends, true
+	case rel.GetIsReference() && source.Type == NodeFunction && target.Type == NodeFunction:
+		return EdgeCalls, true
+	case rel.GetIsReference() && source.Type == NodeFunction && target.Type == NodeClass:
+		return EdgeCalls, true
+	default:
+		return "", false
+	}
 }
 
 func isSCIPDefinitionRole(role int32) bool {
