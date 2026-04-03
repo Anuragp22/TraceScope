@@ -57,6 +57,7 @@ scip-python --version
 Index selection behavior:
 - If `index.scip` exists at repo root, TraceScope uses it directly.
 - Otherwise, it tries `scip-go`, `scip-typescript index`, and `scip-python index`, then merges generated outputs from `.tracescope/scip/`.
+- Nested JS/TS project roots are detected from the nearest ancestor `package.json`, so a repo like `web/package.json` is indexed as `scip-typescript@web`.
 - Generated SCIP outputs are cached and reused while newer than their source files/project markers.
 - On native Windows, `scip-python` is intentionally skipped because the published package fails on Windows path separators; use WSL/Linux CI for Python SCIP indexing.
 - If no SCIP index is available, TraceScope falls back to parser-based indexing and `.tracescope/parse_cache.json`.

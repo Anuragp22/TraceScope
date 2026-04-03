@@ -150,6 +150,66 @@ func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
 	assertIndexerStatus(t, statuses, "scip-typescript", "generated")
 }
 
+func TestGenerateSCIPIndex_SelectsNestedTypeScriptProjectRoots(t *testing.T) {
+	dir := t.TempDir()
+	webDir := filepath.Join(dir, "web")
+	adminDir := filepath.Join(webDir, "admin")
+	if err := os.MkdirAll(filepath.Join(webDir, "app"), 0o755); err != nil {
+		t.Fatalf("mkdir web/app: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(adminDir, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir web/admin/src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(webDir, "package.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write web/package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(adminDir, "package.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write web/admin/package.json: %v", err)
+	}
+
+	var called []string
+	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-typescript": true}, func(workdir, name string, args ...string) error {
+		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
+		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
+	})
+	defer resetSCIPHooks()
+
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+		parser.LangTypeScript: {
+			filepath.Join(webDir, "app", "page.tsx"),
+			filepath.Join(adminDir, "src", "main.ts"),
+		},
+	}, filepath.Join(dir, "index.scip"))
+	if err != nil {
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
+	}
+	if len(generated) != 2 {
+		t.Fatalf("expected 2 generated TS SCIP files, got %v", generated)
+	}
+	sort.Strings(generated)
+	if filepath.Base(generated[0]) != "scip-typescript-web-admin.scip" || filepath.Base(generated[1]) != "scip-typescript-web.scip" {
+		t.Fatalf("unexpected generated TS outputs: %v", generated)
+	}
+	if len(called) != 2 {
+		t.Fatalf("expected 2 scip-typescript invocations, got %v", called)
+	}
+	expectedCalls := map[string]bool{
+		fmt.Sprintf("%s:scip-typescript:[index]", adminDir): true,
+		fmt.Sprintf("%s:scip-typescript:[index]", webDir):   true,
+	}
+	for _, call := range called {
+		if !expectedCalls[call] {
+			t.Fatalf("unexpected scip-typescript invocation %q, expected %v", call, expectedCalls)
+		}
+		delete(expectedCalls, call)
+	}
+	if len(expectedCalls) != 0 {
+		t.Fatalf("missing scip-typescript invocations: %v", expectedCalls)
+	}
+	assertIndexerStatus(t, statuses, "scip-typescript@web", "generated")
+	assertIndexerStatus(t, statuses, "scip-typescript@web/admin", "generated")
+}
+
 func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("scip-python is intentionally skipped on native Windows")
