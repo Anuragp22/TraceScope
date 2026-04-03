@@ -2,7 +2,6 @@ package graph
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -77,13 +76,23 @@ func graphSignatureSets(gd *GraphData, root string) (map[string]struct{}, map[st
 }
 
 func graphNodeSignature(node Node, root string) string {
-	path := canonicalPath(node.FilePath)
-	if root != "" {
-		if rel, err := filepath.Rel(root, node.FilePath); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-			path = canonicalPath(rel)
-		}
-	}
+	path := rootRelativeGraphPath(node.FilePath, root)
 	return fmt.Sprintf("%s:%s:%s", node.Type, path, node.Name)
+}
+
+func rootRelativeGraphPath(path, root string) string {
+	normalizedPath := canonicalPath(path)
+	normalizedRoot := strings.TrimSuffix(canonicalPath(root), "/")
+	if normalizedRoot == "" {
+		return normalizedPath
+	}
+	if normalizedPath == normalizedRoot {
+		return "."
+	}
+	if strings.HasPrefix(normalizedPath, normalizedRoot+"/") {
+		return strings.TrimPrefix(normalizedPath, normalizedRoot+"/")
+	}
+	return normalizedPath
 }
 
 func countSharedSignatures(base, candidate map[string]struct{}) int {
