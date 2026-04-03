@@ -34,6 +34,33 @@ cd TraceScope
 go build -o tracescope ./cmd/tracescope
 ```
 
+## SCIP Indexing
+
+TraceScope now prefers SCIP indexes and falls back to the built-in parser when SCIP is unavailable.
+
+Install SCIP indexers on machines that run `tracescope index`:
+
+```bash
+go install github.com/sourcegraph/scip-go/cmd/scip-go@latest
+npm install -g @sourcegraph/scip-typescript
+npm install -g @sourcegraph/scip-python
+```
+
+Verify:
+
+```bash
+scip-go --version
+scip-typescript --version
+scip-python --version
+```
+
+Index selection behavior:
+- If `index.scip` exists at repo root, TraceScope uses it directly.
+- Otherwise, it tries `scip-go`, `scip-typescript index`, and `scip-python index`, then merges generated outputs from `.tracescope/scip/`.
+- Generated SCIP outputs are cached and reused while newer than their source files/project markers.
+- On native Windows, `scip-python` is intentionally skipped because the published package fails on Windows path separators; use WSL/Linux CI for Python SCIP indexing.
+- If no SCIP index is available, TraceScope falls back to parser-based indexing and `.tracescope/parse_cache.json`.
+
 ## Commands
 
 ### `tracescope index` — Build dependency graph
@@ -148,6 +175,14 @@ git diff | tracescope report -o report.html  # pipe diff
 
 Generates a self-contained HTML file with an interactive D3.js force-directed graph. Supports zoom, pan, drag, search, filters, node detail panel, and blast radius overlay.
 
+### `tracescope validate-scip` - Compare SCIP and parser graphs
+
+```bash
+tracescope validate-scip .
+```
+
+Builds a SCIP graph and a parser fallback graph for the same repo, then reports shared/missing/extra node and edge signatures. Use this to sanity-check SCIP ingestion quality before relying on SCIP blast-radius results.
+
 ## CI Integration
 
 ### Exit codes
@@ -224,8 +259,8 @@ cmd/tracescope/          CLI entry point
 internal/
   cmd/                   Cobra commands (index, analyze, hotspots, why, report)
   config/                YAML config loader with walk-up discovery
-  parser/                Language parsers (Go via go/ast, JS/TS/Python via tree-sitter)
-  graph/                 Graph types, builder, BFS query, pathfinder, persistence
+  parser/                Parser fallback (Go via go/ast, JS/TS/Python via tree-sitter)
+  graph/                 Graph types, SCIP ingestion, fallback builder, BFS query, pathfinder, persistence
   diff/                  Unified diff parser (sourcegraph/go-diff)
   analyzer/              Blast radius, risk scoring, hotspot analysis, diff mapping
   output/                Terminal, JSON, GitHub Markdown, HTML report formatters
