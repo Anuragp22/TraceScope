@@ -22,6 +22,7 @@ func TestFormatMarkdownComment(t *testing.T) {
 				Node:        &graph.Node{Name: "handleRequest", FilePath: "src/handler.go", StartLine: 25},
 				Depth:       1,
 				Risk:        analyzer.RiskHigh,
+				ReviewScore: 118,
 				Confidence:  graph.EdgeConfidenceExact,
 				CallerCount: 5,
 				Reason:      "exported function with many callers",
@@ -34,9 +35,13 @@ func TestFormatMarkdownComment(t *testing.T) {
 				Node:        &graph.Node{Name: "helper", FilePath: "src/util.go", StartLine: 10},
 				Depth:       2,
 				Risk:        analyzer.RiskLow,
+				ReviewScore: 18,
 				CallerCount: 1,
 				Reason:      "internal function",
 			},
+		},
+		ResolutionIssues: []graph.ResolutionIssue{
+			{Kind: "call", Status: "ambiguous", FilePath: "src/app.go", Line: 12, Symbol: "dispatch", Detail: "multiple candidate call targets matched"},
 		},
 		TotalNodes: 100,
 		TotalEdges: 200,
@@ -67,6 +72,9 @@ func TestFormatMarkdownComment(t *testing.T) {
 	if !strings.Contains(md, "Reviewer Focus") {
 		t.Error("missing reviewer focus section")
 	}
+	if !strings.Contains(md, "| 118 | HIGH | `handleRequest` |") {
+		t.Error("missing review score in reviewer focus")
+	}
 	if !strings.Contains(md, "`handleRequest`") {
 		t.Error("missing affected function name")
 	}
@@ -77,6 +85,9 @@ func TestFormatMarkdownComment(t *testing.T) {
 	// Check low risk is in collapsible section
 	if !strings.Contains(md, "<details>") {
 		t.Error("low risk should be in collapsible section")
+	}
+	if !strings.Contains(md, "Resolution Diagnostics") || !strings.Contains(md, "`src/app.go:12`") {
+		t.Error("missing resolution diagnostics")
 	}
 }
 

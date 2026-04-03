@@ -47,6 +47,11 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 		writeTopRisksMD(&b, result.AffectedFunctions, 5)
 	}
 
+	if len(result.ResolutionIssues) > 0 {
+		b.WriteString("### Resolution Diagnostics\n\n")
+		writeResolutionIssuesMD(&b, result.ResolutionIssues, 10)
+	}
+
 	// Risk sections
 	if len(high) > 0 {
 		b.WriteString("### :red_circle: High Risk\n\n")
@@ -89,16 +94,17 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 }
 
 func writeAffectedMD(b *strings.Builder, funcs []analyzer.AffectedFunction) {
-	b.WriteString("| Function | File | Callers | Depth | Confidence | Why path |\n")
-	b.WriteString("|----------|------|---------|-------|------------|----------|\n")
+	b.WriteString("| Function | File | Score | Callers | Depth | Confidence | Why path |\n")
+	b.WriteString("|----------|------|-------|---------|-------|------------|----------|\n")
 	for _, f := range funcs {
 		if f.Node == nil {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("| `%s` | `%s:%d` | %d | %d | %s | %s |\n",
+		b.WriteString(fmt.Sprintf("| `%s` | `%s:%d` | %d | %d | %d | %s | %s |\n",
 			f.Node.Name,
 			f.Node.FilePath,
 			f.Node.StartLine,
+			f.ReviewScore,
 			f.CallerCount,
 			f.Depth,
 			formatConfidence(f.Confidence),
@@ -112,20 +118,63 @@ func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limi
 	if limit > len(funcs) {
 		limit = len(funcs)
 	}
-	b.WriteString("| Risk | Function | Why | Confidence | Impact path |\n")
-	b.WriteString("|------|----------|-----|------------|-------------|\n")
+	b.WriteString("| Score | Risk | Function | Why | Confidence | Impact path |\n")
+	b.WriteString("|-------|------|----------|-----|------------|-------------|\n")
 	for i := 0; i < limit; i++ {
 		f := funcs[i]
 		if f.Node == nil {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("| %s | `%s` | %s | %s | %s |\n",
+		b.WriteString(fmt.Sprintf("| %d | %s | `%s` | %s | %s | %s |\n",
+			f.ReviewScore,
 			f.Risk,
 			f.Node.Name,
 			f.Reason,
 			formatConfidence(f.Confidence),
 			formatImpactPathMD(f),
 		))
+	}
+	b.WriteString("\n")
+}
+
+func writeResolutionIssuesMD(b *strings.Builder, issues []graph.ResolutionIssue, limit int) {
+	if limit > len(issues) {
+		limit = len(issues)
+	}
+	b.WriteString("| Status | Kind | Location | Symbol | Receiver | Detail |\n")
+	b.WriteString("|--------|------|----------|--------|----------|--------|\n")
+	for i := 0; i < limit; i++ {
+		issue := issues[i]
+		location := issue.FilePath
+		if issue.Line > 0 {
+			location = fmt.Sprintf("%s:%d", issue.FilePath, issue.Line)
+		}
+		if location == "" {
+			location = "-"
+		}
+		symbol := issue.Symbol
+		if symbol == "" {
+			symbol = "-"
+		}
+		receiver := issue.Receiver
+		if receiver == "" {
+			receiver = "-"
+		}
+		detail := issue.Detail
+		if detail == "" {
+			detail = "-"
+		}
+		b.WriteString(fmt.Sprintf("| %s | %s | `%s` | `%s` | `%s` | %s |\n",
+			issue.Status,
+			issue.Kind,
+			location,
+			symbol,
+			receiver,
+			detail,
+		))
+	}
+	if len(issues) > limit {
+		b.WriteString(fmt.Sprintf("\n*Showing first %d of %d diagnostics.*\n", limit, len(issues)))
 	}
 	b.WriteString("\n")
 }

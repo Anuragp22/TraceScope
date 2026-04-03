@@ -64,6 +64,18 @@ type ResolutionStats struct {
 	UnresolvedInheritance int `json:"unresolved_inheritance,omitempty"`
 }
 
+// ResolutionIssue records one unresolved or ambiguous reference with enough
+// context for a reviewer to understand where graph precision dropped.
+type ResolutionIssue struct {
+	Kind     string `json:"kind"`
+	Status   string `json:"status"`
+	FilePath string `json:"file_path,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+	Receiver string `json:"receiver,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+}
+
 // FileMetadata stores per-file indexing metadata for incremental indexing.
 type FileMetadata struct {
 	Hash      string `json:"hash"`
@@ -74,11 +86,12 @@ type FileMetadata struct {
 
 // GraphData is the serializable representation of the full dependency graph.
 type GraphData struct {
-	Nodes           []Node                   `json:"nodes"`
-	Edges           []Edge                   `json:"edges"`
-	RootPath        string                   `json:"root_path,omitempty"`
-	FileMetadata    map[string]*FileMetadata `json:"file_metadata,omitempty"`
-	ResolutionStats ResolutionStats          `json:"resolution_stats,omitempty"`
+	Nodes            []Node                   `json:"nodes"`
+	Edges            []Edge                   `json:"edges"`
+	RootPath         string                   `json:"root_path,omitempty"`
+	FileMetadata     map[string]*FileMetadata `json:"file_metadata,omitempty"`
+	ResolutionStats  ResolutionStats          `json:"resolution_stats,omitempty"`
+	ResolutionIssues []ResolutionIssue        `json:"resolution_issues,omitempty"`
 }
 
 // Metadata holds graph statistics.

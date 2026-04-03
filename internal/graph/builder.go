@@ -12,6 +12,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const maxResolutionIssues = 200
+
 // Builder constructs the dependency graph from parsed file results.
 type Builder struct{}
 
@@ -220,8 +222,24 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 						confidence = EdgeConfidenceHeuristic
 					} else if status == resolutionAmbiguous {
 						gd.ResolutionStats.AmbiguousInheritance++
+						appendResolutionIssue(gd, ResolutionIssue{
+							Kind:     "inheritance",
+							Status:   "ambiguous",
+							FilePath: fr.FilePath,
+							Line:     cls.StartLine,
+							Symbol:   baseName,
+							Detail:   "multiple matching base classes found across files",
+						})
 					} else {
 						gd.ResolutionStats.UnresolvedInheritance++
+						appendResolutionIssue(gd, ResolutionIssue{
+							Kind:     "inheritance",
+							Status:   "unresolved",
+							FilePath: fr.FilePath,
+							Line:     cls.StartLine,
+							Symbol:   baseName,
+							Detail:   "no matching base class found",
+						})
 					}
 				}
 				if targetID == "" {
@@ -291,8 +309,26 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				switch status {
 				case resolutionAmbiguous:
 					gd.ResolutionStats.AmbiguousCalls++
+					appendResolutionIssue(gd, ResolutionIssue{
+						Kind:     "call",
+						Status:   "ambiguous",
+						FilePath: fr.FilePath,
+						Line:     call.Line,
+						Symbol:   call.Name,
+						Receiver: call.Receiver,
+						Detail:   "multiple candidate call targets matched",
+					})
 				case resolutionUnresolved:
 					gd.ResolutionStats.UnresolvedCalls++
+					appendResolutionIssue(gd, ResolutionIssue{
+						Kind:     "call",
+						Status:   "unresolved",
+						FilePath: fr.FilePath,
+						Line:     call.Line,
+						Symbol:   call.Name,
+						Receiver: call.Receiver,
+						Detail:   "no call target matched parser output and import bindings",
+					})
 				}
 				continue
 			}
@@ -870,4 +906,11 @@ func longestImportSuffixMatch(dirPath string, importParts []string) int {
 		}
 	}
 	return best
+}
+
+func appendResolutionIssue(gd *GraphData, issue ResolutionIssue) {
+	if len(gd.ResolutionIssues) >= maxResolutionIssues {
+		return
+	}
+	gd.ResolutionIssues = append(gd.ResolutionIssues, issue)
 }

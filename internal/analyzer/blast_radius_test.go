@@ -117,3 +117,39 @@ func TestBlastRadiusAnalyzer_DeterministicOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestBlastRadiusAnalyzer_ReviewScorePrioritizesDirectExportedProdImpact(t *testing.T) {
+	gd := &graph.GraphData{
+		Nodes: []graph.Node{
+			{ID: "file:target", Type: graph.NodeFile, Name: "target.go", FilePath: "target.go"},
+			{ID: "func:target", Type: graph.NodeFunction, Name: "target", FilePath: "target.go", StartLine: 1, EndLine: 3, IsExport: true},
+			{ID: "func:direct", Type: graph.NodeFunction, Name: "directCaller", FilePath: "prod.go", StartLine: 1, EndLine: 5, IsExport: true},
+			{ID: "func:test", Type: graph.NodeFunction, Name: "testCaller", FilePath: "prod_test.go", StartLine: 1, EndLine: 5, IsTest: true},
+		},
+		Edges: []graph.Edge{
+			{Source: "file:target", Target: "func:target", Type: graph.EdgeContains},
+			{Source: "func:direct", Target: "func:target", Type: graph.EdgeCalls, Confidence: graph.EdgeConfidenceExact},
+			{Source: "func:test", Target: "func:target", Type: graph.EdgeCalls, Confidence: graph.EdgeConfidenceExact},
+		},
+		ResolutionIssues: []graph.ResolutionIssue{
+			{Kind: "call", Status: "ambiguous", FilePath: "prod.go", Line: 3, Symbol: "run"},
+		},
+	}
+
+	result := NewBlastRadiusAnalyzer(gd, 5, nil).Analyze([]diff.ChangedFile{
+		{Path: "target.go", LineRanges: []diff.LineRange{{Start: 2, End: 2}}},
+	})
+
+	if len(result.AffectedFunctions) != 2 {
+		t.Fatalf("expected 2 affected functions, got %d", len(result.AffectedFunctions))
+	}
+	if result.AffectedFunctions[0].Node.Name != "directCaller" {
+		t.Fatalf("expected directCaller to rank first, got %s", result.AffectedFunctions[0].Node.Name)
+	}
+	if result.AffectedFunctions[0].ReviewScore <= result.AffectedFunctions[1].ReviewScore {
+		t.Fatalf("expected directCaller score %d to exceed %d", result.AffectedFunctions[0].ReviewScore, result.AffectedFunctions[1].ReviewScore)
+	}
+	if len(result.ResolutionIssues) != 1 || result.ResolutionIssues[0].Symbol != "run" {
+		t.Fatalf("expected resolution diagnostics to propagate, got %+v", result.ResolutionIssues)
+	}
+}

@@ -22,6 +22,7 @@ type AffectedFunction struct {
 	Node         *graph.Node          `json:"node"`
 	Depth        int                  `json:"depth"`
 	Risk         RiskLevel            `json:"risk"`
+	ReviewScore  int                  `json:"review_score,omitempty"`
 	Confidence   graph.EdgeConfidence `json:"confidence,omitempty"`
 	CallerCount  int                  `json:"caller_count"`
 	Reason       string               `json:"reason"`
@@ -33,16 +34,17 @@ type AffectedFunction struct {
 
 // AnalysisResult holds the complete blast radius analysis.
 type AnalysisResult struct {
-	ChangedFunctions  []ChangedFunction     `json:"changed_functions"`
-	AffectedFunctions []AffectedFunction    `json:"affected_functions"`
-	ChangedFiles      []diff.ChangedFile    `json:"changed_files"`
-	ResolutionStats   graph.ResolutionStats `json:"resolution_stats,omitempty"`
-	TotalNodes        int                   `json:"total_nodes"`
-	TotalEdges        int                   `json:"total_edges"`
-	MaxDepth          int                   `json:"max_depth"`
-	TotalAffected     int                   `json:"total_affected,omitempty"`
-	TopN              int                   `json:"top_n,omitempty"`
-	Ownership         interface{}           `json:"ownership,omitempty"`
+	ChangedFunctions  []ChangedFunction       `json:"changed_functions"`
+	AffectedFunctions []AffectedFunction      `json:"affected_functions"`
+	ChangedFiles      []diff.ChangedFile      `json:"changed_files"`
+	ResolutionStats   graph.ResolutionStats   `json:"resolution_stats,omitempty"`
+	ResolutionIssues  []graph.ResolutionIssue `json:"resolution_issues,omitempty"`
+	TotalNodes        int                     `json:"total_nodes"`
+	TotalEdges        int                     `json:"total_edges"`
+	MaxDepth          int                     `json:"max_depth"`
+	TotalAffected     int                     `json:"total_affected,omitempty"`
+	TopN              int                     `json:"top_n,omitempty"`
+	Ownership         interface{}             `json:"ownership,omitempty"`
 }
 
 // RiskExitError is returned when the analysis completes but risk was found.
@@ -91,11 +93,12 @@ func NewBlastRadiusAnalyzer(graphData *graph.GraphData, maxDepth int, scorer *Ri
 // Analyze runs the full analysis: diff → functions → blast radius → risk scoring.
 func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *AnalysisResult {
 	result := &AnalysisResult{
-		ChangedFiles:    changedFiles,
-		ResolutionStats: a.graphData.ResolutionStats,
-		TotalNodes:      len(a.graphData.Nodes),
-		TotalEdges:      len(a.graphData.Edges),
-		MaxDepth:        a.maxDepth,
+		ChangedFiles:     changedFiles,
+		ResolutionStats:  a.graphData.ResolutionStats,
+		ResolutionIssues: a.graphData.ResolutionIssues,
+		TotalNodes:       len(a.graphData.Nodes),
+		TotalEdges:       len(a.graphData.Edges),
+		MaxDepth:         a.maxDepth,
 	}
 
 	// Step 1: Map diff to changed functions
@@ -167,6 +170,7 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 			Node:        node,
 			Depth:       depth,
 			Risk:        risk,
+			ReviewScore: computeReviewScore(node, risk, br.Confidence[id], count, prodCount, depth),
 			Confidence:  br.Confidence[id],
 			CallerCount: count,
 			Reason:      reason,
@@ -176,12 +180,18 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 
 	// Sort for deterministic output: risk level → callers desc → name asc
 	sort.Slice(result.AffectedFunctions, func(i, j int) bool {
+		if result.AffectedFunctions[i].ReviewScore != result.AffectedFunctions[j].ReviewScore {
+			return result.AffectedFunctions[i].ReviewScore > result.AffectedFunctions[j].ReviewScore
+		}
 		ri, rj := riskOrder(result.AffectedFunctions[i].Risk), riskOrder(result.AffectedFunctions[j].Risk)
 		if ri != rj {
 			return ri < rj
 		}
 		if result.AffectedFunctions[i].CallerCount != result.AffectedFunctions[j].CallerCount {
 			return result.AffectedFunctions[i].CallerCount > result.AffectedFunctions[j].CallerCount
+		}
+		if result.AffectedFunctions[i].Depth != result.AffectedFunctions[j].Depth {
+			return result.AffectedFunctions[i].Depth < result.AffectedFunctions[j].Depth
 		}
 		return result.AffectedFunctions[i].Node.Name < result.AffectedFunctions[j].Node.Name
 	})
@@ -223,6 +233,53 @@ func riskOrder(r RiskLevel) int {
 		return 2
 	}
 	return 3
+}
+
+func computeReviewScore(node *graph.Node, risk RiskLevel, confidence graph.EdgeConfidence, callerCount, prodCallerCount, depth int) int {
+	score := 0
+	switch risk {
+	case RiskHigh:
+		score += 80
+	case RiskMedium:
+		score += 50
+	case RiskLow:
+		score += 20
+	}
+
+	score += minInt(prodCallerCount*4, 24)
+	score += minInt(callerCount*2, 12)
+
+	if node.IsExport {
+		score += 10
+	}
+	if !node.IsTest {
+		score += 6
+	}
+
+	switch {
+	case depth <= 1:
+		score += 12
+	case depth == 2:
+		score += 6
+	case depth >= 4:
+		score -= 4
+	}
+
+	if confidence == graph.EdgeConfidenceHeuristic {
+		score -= 8
+	}
+
+	if score < 0 {
+		return 0
+	}
+	return score
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // buildCallerCountMaps counts total and production (non-test) callers for each function.

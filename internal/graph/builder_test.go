@@ -126,6 +126,16 @@ func TestBuilder_SkipsAmbiguousUnqualifiedCalls(t *testing.T) {
 			t.Fatal("expected ambiguous unqualified Run() call to remain unresolved")
 		}
 	}
+
+	foundDiagnostic := false
+	for _, issue := range gd.ResolutionIssues {
+		if issue.Kind == "call" && issue.Status == "ambiguous" && issue.Symbol == "Run" && issue.FilePath == "caller/main.go" {
+			foundDiagnostic = true
+		}
+	}
+	if !foundDiagnostic {
+		t.Fatal("expected ambiguous Run() call to be included in resolution diagnostics")
+	}
 }
 
 func TestBuilder_ResolvesJSImportByFullFileQualifier(t *testing.T) {

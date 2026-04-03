@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anurag/tracescope/internal/analyzer"
+	"github.com/anurag/tracescope/internal/graph"
 	"github.com/anurag/tracescope/internal/ownership"
 	"github.com/fatih/color"
 )
@@ -110,6 +111,12 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 		}
 	}
 
+	if len(result.ResolutionIssues) > 0 {
+		fmt.Fprintln(os.Stderr)
+		bold.Fprintln(os.Stderr, "  Resolution Diagnostics:")
+		printResolutionIssues(result.ResolutionIssues, cwd)
+	}
+
 	fmt.Fprintln(os.Stderr)
 }
 
@@ -134,6 +141,9 @@ func groupByRisk(funcs []analyzer.AffectedFunction) (high, medium, low []analyze
 
 	sortGroup := func(s []analyzer.AffectedFunction) {
 		sort.Slice(s, func(i, j int) bool {
+			if s[i].ReviewScore != s[j].ReviewScore {
+				return s[i].ReviewScore > s[j].ReviewScore
+			}
 			if s[i].CallerCount != s[j].CallerCount {
 				return s[i].CallerCount > s[j].CallerCount
 			}
@@ -158,7 +168,7 @@ func printAffected(funcs []analyzer.AffectedFunction, cwd string) {
 		relPath := shortPathCwd(f.Node.FilePath, cwd)
 		fmt.Fprintf(os.Stderr, "      %s ", f.Node.Name)
 		dim.Fprintf(os.Stderr, "(%s:%d) ", relPath, f.Node.StartLine)
-		dim.Fprintf(os.Stderr, "[%d callers, depth %d, %s, %s]", f.CallerCount, f.Depth, formatConfidence(f.Confidence), f.Reason)
+		dim.Fprintf(os.Stderr, "[score %d, %d callers, depth %d, %s, %s]", f.ReviewScore, f.CallerCount, f.Depth, formatConfidence(f.Confidence), f.Reason)
 		if f.LastAuthor != "" {
 			dim.Fprintf(os.Stderr, " by %s", f.LastAuthor)
 		}
@@ -166,6 +176,34 @@ func printAffected(funcs []analyzer.AffectedFunction, cwd string) {
 		if path := formatImpactPathText(f); path != "" {
 			dim.Fprintf(os.Stderr, "        path: %s\n", path)
 		}
+	}
+}
+
+func printResolutionIssues(issues []graph.ResolutionIssue, cwd string) {
+	limit := len(issues)
+	if limit > 10 {
+		limit = 10
+	}
+	for i := 0; i < limit; i++ {
+		issue := issues[i]
+		path := shortPathCwd(issue.FilePath, cwd)
+		if issue.Line > 0 {
+			path = fmt.Sprintf("%s:%d", path, issue.Line)
+		}
+		symbol := issue.Symbol
+		if issue.Receiver != "" {
+			symbol = issue.Receiver + "." + issue.Symbol
+		}
+		if symbol == "" {
+			symbol = "-"
+		}
+		dim.Fprintf(os.Stderr, "    %s %s %s (%s)\n", issue.Status, issue.Kind, symbol, path)
+		if issue.Detail != "" {
+			dim.Fprintf(os.Stderr, "      %s\n", issue.Detail)
+		}
+	}
+	if len(issues) > limit {
+		dim.Fprintf(os.Stderr, "    ... showing first %d of %d diagnostics\n", limit, len(issues))
 	}
 }
 
