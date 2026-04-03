@@ -62,21 +62,17 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	outDir := filepath.Join(absPath, ".tracescope")
 	graphFile := filepath.Join(outDir, "graph.json")
 	cacheFile := filepath.Join(outDir, "parse_cache.json")
-	scipFile := filepath.Join(absPath, "index.scip")
 
-	if _, err := os.Stat(scipFile); err != nil {
-		generated, genErr := generateSCIPIndex(absPath, files, scipFile)
-		if genErr != nil {
-			log.Warn().Err(genErr).Msg("SCIP generation failed, falling back to parser")
-		} else if generated {
-			fmt.Fprintf(os.Stderr, "  Generated SCIP index: %s\n", scipFile)
-		}
+	scipFiles, err := collectSCIPIndexes(absPath, outDir, files)
+	if err != nil {
+		log.Warn().Err(err).Msg("SCIP generation failed, falling back to parser")
 	}
+	if len(scipFiles) > 0 {
+		for _, scipFile := range scipFiles {
+			fmt.Fprintf(os.Stderr, "  Using SCIP index: %s\n", scipFile)
+		}
 
-	if _, err := os.Stat(scipFile); err == nil {
-		fmt.Fprintf(os.Stderr, "  Found SCIP index: %s\n", scipFile)
-
-		graphData, err := graph.BuildFromSCIP(scipFile)
+		graphData, err := graph.BuildFromSCIPFiles(scipFiles)
 		if err != nil {
 			return fmt.Errorf("loading SCIP index: %w", err)
 		}
@@ -207,32 +203,45 @@ var runSCIPCommand = func(dir, name string, args ...string) error {
 	return command.Run()
 }
 
-func generateSCIPIndex(root string, files map[parser.Language][]string, scipFile string) (bool, error) {
+func collectSCIPIndexes(root, outDir string, files map[parser.Language][]string) ([]string, error) {
+	scipFile := filepath.Join(root, "index.scip")
+	if _, err := os.Stat(scipFile); err == nil {
+		return []string{scipFile}, nil
+	}
+	return generateSCIPIndexes(root, filepath.Join(outDir, "scip"), files, scipFile)
+}
+
+func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]string, scipFile string) ([]string, error) {
 	candidates := []struct {
 		name    string
+		output  string
 		args    []string
 		markers []string
 		enabled bool
 	}{
 		{
 			name:    "scip-go",
+			output:  "scip-go.scip",
 			markers: []string{"go.mod"},
 			enabled: len(files[parser.LangGo]) > 0,
 		},
 		{
 			name:    "scip-typescript",
+			output:  "scip-typescript.scip",
 			args:    []string{"index"},
 			markers: []string{"package.json"},
 			enabled: len(files[parser.LangTypeScript]) > 0 || len(files[parser.LangJavaScript]) > 0,
 		},
 		{
 			name:    "scip-python",
+			output:  "scip-python.scip",
 			args:    []string{"index", ".", "--project-name", filepath.Base(root)},
 			markers: []string{"pyproject.toml", "requirements.txt"},
 			enabled: len(files[parser.LangPython]) > 0,
 		},
 	}
 
+	var generated []string
 	for _, candidate := range candidates {
 		if !candidate.enabled || !hasAnyMarker(root, candidate.markers) {
 			continue
@@ -240,16 +249,28 @@ func generateSCIPIndex(root string, files map[parser.Language][]string, scipFile
 		if _, err := scipLookPath(candidate.name); err != nil {
 			continue
 		}
+		if err := os.MkdirAll(scipOutDir, 0755); err != nil {
+			return generated, fmt.Errorf("creating SCIP output dir: %w", err)
+		}
+		if err := os.Remove(scipFile); err != nil && !os.IsNotExist(err) {
+			return generated, fmt.Errorf("removing stale root SCIP index: %w", err)
+		}
 		if err := runSCIPCommand(root, candidate.name, candidate.args...); err != nil {
-			return false, fmt.Errorf("running %s: %w", candidate.name, err)
+			log.Warn().Err(err).Str("indexer", candidate.name).Msg("SCIP indexer failed")
+			continue
 		}
 		if _, err := os.Stat(scipFile); err != nil {
-			return false, fmt.Errorf("%s completed but %s was not created", candidate.name, scipFile)
+			log.Warn().Str("indexer", candidate.name).Str("path", scipFile).Msg("SCIP indexer completed without producing index.scip")
+			continue
 		}
-		return true, nil
+		targetPath := filepath.Join(scipOutDir, candidate.output)
+		if err := os.Rename(scipFile, targetPath); err != nil {
+			return generated, fmt.Errorf("saving %s output: %w", candidate.name, err)
+		}
+		generated = append(generated, targetPath)
 	}
 
-	return false, nil
+	return generated, nil
 }
 
 func hasAnyMarker(root string, markers []string) bool {

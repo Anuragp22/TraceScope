@@ -219,6 +219,56 @@ func TestBuildFromSCIP_MatchesParserFallbackBlastRadiusShape(t *testing.T) {
 	}
 }
 
+func TestBuildFromSCIPFiles_MergesMultipleIndexes(t *testing.T) {
+	dir := t.TempDir()
+	goIndexPath := filepath.Join(dir, "go.scip")
+	tsIndexPath := filepath.Join(dir, "ts.scip")
+
+	writeSCIPIndexFixture(t, goIndexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "service.go",
+			Language:     "go",
+			Occurrences: []*scip.Occurrence{{
+				Range:       []int32{0, 5, 8},
+				Symbol:      "scip-go gomod example.com/acme/pkg Run().",
+				SymbolRoles: int32(scip.SymbolRole_Definition),
+			}},
+			Symbols: []*scip.SymbolInformation{{
+				Symbol:      "scip-go gomod example.com/acme/pkg Run().",
+				Kind:        scip.SymbolInformation_Function,
+				DisplayName: "Run",
+			}},
+		}},
+	})
+	writeSCIPIndexFixture(t, tsIndexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "app.ts",
+			Language:     "typescript",
+			Occurrences: []*scip.Occurrence{{
+				Range:       []int32{0, 16, 21},
+				Symbol:      "scip-typescript npm demo 1.0.0 `app.ts`/start().",
+				SymbolRoles: int32(scip.SymbolRole_Definition),
+			}},
+			Symbols: []*scip.SymbolInformation{{
+				Symbol:      "scip-typescript npm demo 1.0.0 `app.ts`/start().",
+				Kind:        scip.SymbolInformation_Function,
+				DisplayName: "start",
+			}},
+		}},
+	})
+
+	gd, err := BuildFromSCIPFiles([]string{goIndexPath, tsIndexPath})
+	if err != nil {
+		t.Fatalf("BuildFromSCIPFiles failed: %v", err)
+	}
+	if findNodeIDByNameAndFile(gd, "Run", "service.go") == "" {
+		t.Fatal("expected Go symbol from merged SCIP indexes")
+	}
+	if findNodeIDByNameAndFile(gd, "start", "app.ts") == "" {
+		t.Fatal("expected TypeScript symbol from merged SCIP indexes")
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {
@@ -254,4 +304,16 @@ func findNodeByName(nodes map[string]*Node, name string) *Node {
 		}
 	}
 	return nil
+}
+
+func writeSCIPIndexFixture(t *testing.T, indexPath string, index *scip.Index) {
+	t.Helper()
+
+	raw, err := proto.Marshal(index)
+	if err != nil {
+		t.Fatalf("marshal scip fixture: %v", err)
+	}
+	if err := os.WriteFile(indexPath, raw, 0o600); err != nil {
+		t.Fatalf("write scip fixture: %v", err)
+	}
 }

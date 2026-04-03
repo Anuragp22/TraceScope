@@ -12,16 +12,24 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// BuildFromSCIP loads an index.scip file and converts it into GraphData.
+// BuildFromSCIP loads one index.scip file and converts it into GraphData.
 func BuildFromSCIP(indexPath string) (*GraphData, error) {
-	raw, err := os.ReadFile(indexPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading SCIP index: %w", err)
-	}
+	return BuildFromSCIPFiles([]string{indexPath})
+}
 
-	var index scip.Index
-	if err := proto.Unmarshal(raw, &index); err != nil {
-		return nil, fmt.Errorf("decoding SCIP index: %w", err)
+// BuildFromSCIPFiles loads one or more SCIP index files and merges them into
+// one GraphData instance.
+func BuildFromSCIPFiles(indexPaths []string) (*GraphData, error) {
+	var documents []*scip.Document
+	var externalSymbols []*scip.SymbolInformation
+
+	for _, indexPath := range indexPaths {
+		index, err := loadSCIPIndex(indexPath)
+		if err != nil {
+			return nil, err
+		}
+		documents = append(documents, index.GetDocuments()...)
+		externalSymbols = append(externalSymbols, index.GetExternalSymbols()...)
 	}
 
 	builder := scipGraphBuilder{
@@ -31,13 +39,26 @@ func BuildFromSCIP(indexPath string) (*GraphData, error) {
 		symbolNodeByID: map[string]string{},
 		symbolInfoByID: map[string]*scip.SymbolInformation{},
 	}
-	builder.collectSymbolInfo(index.GetDocuments(), index.GetExternalSymbols())
-	builder.registerDocuments(index.GetDocuments())
-	builder.registerSymbolDefinitions(index.GetDocuments())
+	builder.collectSymbolInfo(documents, externalSymbols)
+	builder.registerDocuments(documents)
+	builder.registerSymbolDefinitions(documents)
 	builder.registerSymbolRelationships()
-	builder.registerReferenceEdges(index.GetDocuments())
+	builder.registerReferenceEdges(documents)
 	builder.flushNodes()
 	return builder.graphData, nil
+}
+
+func loadSCIPIndex(indexPath string) (*scip.Index, error) {
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading SCIP index: %w", err)
+	}
+
+	var index scip.Index
+	if err := proto.Unmarshal(raw, &index); err != nil {
+		return nil, fmt.Errorf("decoding SCIP index: %w", err)
+	}
+	return &index, nil
 }
 
 type scipGraphBuilder struct {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/anurag/tracescope/internal/graph"
@@ -89,24 +90,27 @@ func TestGenerateSCIPIndex_SelectsGoIndexer(t *testing.T) {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	called := ""
+	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-go": true}, func(workdir, name string, args ...string) error {
-		called = fmt.Sprintf("%s:%s", workdir, name)
+		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
 		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndex(dir, map[parser.Language][]string{
+	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangGo: {filepath.Join(dir, "main.go")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
-		t.Fatalf("generateSCIPIndex failed: %v", err)
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
 	}
-	if !generated {
+	if len(generated) != 1 {
 		t.Fatal("expected SCIP generation")
 	}
-	if called != fmt.Sprintf("%s:scip-go", dir) {
-		t.Fatalf("expected scip-go invocation, got %q", called)
+	if called[0] != fmt.Sprintf("%s:scip-go:[]", dir) {
+		t.Fatalf("expected scip-go invocation, got %q", called[0])
+	}
+	if filepath.Base(generated[0]) != "scip-go.scip" {
+		t.Fatalf("expected scip-go.scip output, got %q", generated[0])
 	}
 }
 
@@ -116,24 +120,27 @@ func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
 		t.Fatalf("write package.json: %v", err)
 	}
 
-	called := ""
+	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-typescript": true}, func(workdir, name string, args ...string) error {
-		called = fmt.Sprintf("%s:%s:%v", workdir, name, args)
+		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
 		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndex(dir, map[parser.Language][]string{
+	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangTypeScript: {filepath.Join(dir, "app.ts")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
-		t.Fatalf("generateSCIPIndex failed: %v", err)
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
 	}
-	if !generated {
+	if len(generated) != 1 {
 		t.Fatal("expected SCIP generation")
 	}
-	if called != fmt.Sprintf("%s:scip-typescript:[index]", dir) {
-		t.Fatalf("expected scip-typescript index invocation, got %q", called)
+	if called[0] != fmt.Sprintf("%s:scip-typescript:[index]", dir) {
+		t.Fatalf("expected scip-typescript index invocation, got %q", called[0])
+	}
+	if filepath.Base(generated[0]) != "scip-typescript.scip" {
+		t.Fatalf("expected scip-typescript.scip output, got %q", generated[0])
 	}
 }
 
@@ -143,24 +150,62 @@ func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
 		t.Fatalf("write pyproject.toml: %v", err)
 	}
 
-	called := ""
+	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-python": true}, func(workdir, name string, args ...string) error {
-		called = fmt.Sprintf("%s:%s:%v", workdir, name, args)
+		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
 		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndex(dir, map[parser.Language][]string{
+	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangPython: {filepath.Join(dir, "app.py")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
-		t.Fatalf("generateSCIPIndex failed: %v", err)
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
 	}
-	if !generated {
+	if len(generated) != 1 {
 		t.Fatal("expected SCIP generation")
 	}
-	if called != fmt.Sprintf("%s:scip-python:[index . --project-name %s]", dir, filepath.Base(dir)) {
-		t.Fatalf("expected scip-python invocation, got %q", called)
+	if called[0] != fmt.Sprintf("%s:scip-python:[index . --project-name %s]", dir, filepath.Base(dir)) {
+		t.Fatalf("expected scip-python invocation, got %q", called[0])
+	}
+	if filepath.Base(generated[0]) != "scip-python.scip" {
+		t.Fatalf("expected scip-python.scip output, got %q", generated[0])
+	}
+}
+
+func TestGenerateSCIPIndexes_MergesMultipleLanguageIndexes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/acme\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	var called []string
+	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{
+		"scip-go":         true,
+		"scip-typescript": true,
+	}, func(workdir, name string, args ...string) error {
+		called = append(called, name)
+		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte(name), 0o600)
+	})
+	defer resetSCIPHooks()
+
+	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+		parser.LangGo:         {filepath.Join(dir, "main.go")},
+		parser.LangTypeScript: {filepath.Join(dir, "app.ts")},
+	}, filepath.Join(dir, "index.scip"))
+	if err != nil {
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
+	}
+	if len(generated) != 2 {
+		t.Fatalf("expected 2 generated SCIP files, got %d (%v)", len(generated), generated)
+	}
+	sort.Strings(called)
+	if fmt.Sprint(called) != "[scip-go scip-typescript]" {
+		t.Fatalf("expected scip-go and scip-typescript invocations, got %v", called)
 	}
 }
 
@@ -176,13 +221,13 @@ func TestGenerateSCIPIndex_FallsBackWhenIndexerMissing(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndex(dir, map[parser.Language][]string{
+	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangGo: {filepath.Join(dir, "main.go")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
-		t.Fatalf("generateSCIPIndex failed: %v", err)
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
 	}
-	if generated {
+	if len(generated) > 0 {
 		t.Fatal("expected fallback when no SCIP indexer is installed")
 	}
 }
