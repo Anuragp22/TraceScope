@@ -207,6 +207,42 @@ Builds a SCIP graph and a parser fallback graph for the same repo, then reports 
   run: git diff origin/main...HEAD | tracescope analyze --github-comment --owners
 ```
 
+### PR comment demo
+
+For a change touching `internal/graph/builder.go`, `tracescope analyze --github-comment --owners`
+produces a reviewer-focused summary like this:
+
+```markdown
+## TraceScope Blast Radius
+
+**Risk:** HIGH
+**Changed functions:** 2
+**Affected functions:** 8
+**Graph source:** scip
+
+### Reviewer focus
+
+1. `Build` - `internal/graph/builder.go:27`
+   - Why path: `Build -> registerReferenceEdges -> addEdge`
+   - Confidence: exact
+   - Owners: `@graph-team`
+   - Inspect: call resolution and import-edge behavior
+
+2. `ComputeBlastRadius` - `internal/graph/pathfinder.go:18`
+   - Why path: `Build -> ComputeBlastRadius`
+   - Confidence: exact
+   - Owners: `@platform-team`
+   - Inspect: traversal depth, duplicate edge handling, and ranking changes
+
+### Suggested reviewers
+
+- `@graph-team`
+- `@platform-team`
+```
+
+That PR comment is the core product surface: a short, ranked blast-radius review with
+path explanations and ownership, not the dashboard.
+
 ## Configuration
 
 Create a `.tracescope.yaml` in your project root:
