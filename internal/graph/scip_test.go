@@ -110,6 +110,9 @@ func TestBuildFromSCIP_MapsDefinitionsAndReferences(t *testing.T) {
 	if !hasEdge(gd, makeFileID("main.go"), mainNode.ID, EdgeContains) {
 		t.Fatal("expected main.go -> main CONTAINS edge")
 	}
+	if !hasEdge(gd, makeFileID("main.go"), makeFileID("service.go"), EdgeImports) {
+		t.Fatal("expected main.go -> service.go IMPORTS edge from cross-package SCIP reference")
+	}
 }
 
 func TestBuildFromSCIP_MatchesParserFallbackBlastRadiusShape(t *testing.T) {
@@ -623,6 +626,50 @@ func TestBuildFromSCIP_MapsImportOccurrencesToImportEdges(t *testing.T) {
 	}
 }
 
+func TestBuildFromSCIP_MapsPackageImportSymbolsToRepresentativeFile(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{
+			{
+				RelativePath: "main.go",
+				Language:     "go",
+				Occurrences: []*scip.Occurrence{
+					{
+						Range:       []int32{2, 1, 8},
+						Symbol:      "scip-go gomod example.com/acme/internal/service .",
+						SymbolRoles: int32(scip.SymbolRole_Import),
+					},
+					{
+						Range:       []int32{4, 5, 9},
+						Symbol:      "scip-go gomod example.com/acme/cmd main().",
+						SymbolRoles: int32(scip.SymbolRole_Definition),
+					},
+				},
+			},
+			{
+				RelativePath: "internal/service/run.go",
+				Language:     "go",
+				Occurrences: []*scip.Occurrence{{
+					Range:       []int32{1, 5, 8},
+					Symbol:      "scip-go gomod example.com/acme/internal/service Run().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				}},
+			},
+		},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	mainID := makeFileID("main.go")
+	serviceID := makeFileID("internal/service/run.go")
+	if !hasEdge(gd, mainID, serviceID, EdgeImports) {
+		t.Fatal("expected package import symbol to resolve to internal/service/run.go")
+	}
+}
+
 func TestBuildFromSCIP_SkipsGeneratedNextDocuments(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "index.scip")
 	writeSCIPIndexFixture(t, indexPath, &scip.Index{
@@ -705,6 +752,13 @@ func TestBuildFromSCIP_DedupesRepeatedSymbolDefinitions(t *testing.T) {
 	}
 	if node.StartLine != 10 || node.EndLine != 15 {
 		t.Fatalf("expected merged line span 10-15, got %d-%d", node.StartLine, node.EndLine)
+	}
+}
+
+func TestSCIPPackageForSymbol_ParsesBacktickedGoPackagePath(t *testing.T) {
+	symbol := "scip-go gomod github.com/anurag/tracescope 06d2824d285e `github.com/anurag/tracescope/internal/cmd`/Execute()."
+	if got := scipPackageForSymbol(symbol); got != "github.com/anurag/tracescope/internal/cmd" {
+		t.Fatalf("expected package path github.com/anurag/tracescope/internal/cmd, got %q", got)
 	}
 }
 

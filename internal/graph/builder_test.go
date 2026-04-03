@@ -396,6 +396,62 @@ func TestBuilder_ResolvesGoImportsByPackageSuffix(t *testing.T) {
 	t.Fatal("expected import to resolve to internal/service/run.go")
 }
 
+func TestBuilder_GoImportsIgnoreTestFiles(t *testing.T) {
+	results := []*parser.FileResult{
+		{
+			FilePath: "cmd/app/main.go",
+			Language: parser.LangGo,
+			Package:  "main",
+			Imports: []parser.Import{{
+				Path: "github.com/acme/project/internal/service",
+				Line: 1,
+			}},
+		},
+		{
+			FilePath:   "internal/service/service_test.go",
+			Language:   parser.LangGo,
+			Package:    "service",
+			IsTestFile: true,
+			Functions: []parser.FunctionDef{{
+				Name:      "TestHelper",
+				StartLine: 1,
+				EndLine:   3,
+			}},
+		},
+		{
+			FilePath: "internal/service/run.go",
+			Language: parser.LangGo,
+			Package:  "service",
+			Functions: []parser.FunctionDef{{
+				Name:      "Run",
+				StartLine: 1,
+				EndLine:   3,
+				IsExport:  true,
+			}},
+		},
+	}
+
+	gd := NewBuilder().Build(results)
+
+	foundProdImport := false
+	for _, e := range gd.Edges {
+		if e.Type != EdgeImports {
+			continue
+		}
+		src := findNode(gd, e.Source)
+		tgt := findNode(gd, e.Target)
+		if src != nil && tgt != nil && src.FilePath == "cmd/app/main.go" && tgt.FilePath == "internal/service/run.go" {
+			foundProdImport = true
+		}
+		if src != nil && tgt != nil && src.FilePath == "cmd/app/main.go" && tgt.FilePath == "internal/service/service_test.go" {
+			t.Fatal("expected Go imports to ignore *_test.go targets")
+		}
+	}
+	if !foundProdImport {
+		t.Fatal("expected cmd/app/main.go to import internal/service/run.go")
+	}
+}
+
 func TestBuilder_ResolvesTypedGoMethodReceiver(t *testing.T) {
 	source := []byte(`package models
 

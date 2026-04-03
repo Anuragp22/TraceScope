@@ -409,7 +409,7 @@ func (b *Builder) resolveGoImport(imp parser.Import, fileNodeByPath map[string]s
 	importPath := strings.Trim(imp.Path, "/")
 	importParts := strings.Split(importPath, "/")
 	for _, r := range results {
-		if r.Language != parser.LangGo {
+		if r.Language != parser.LangGo || r.IsTestFile {
 			continue
 		}
 		dirPath := filepath.ToSlash(filepath.Dir(r.FilePath))

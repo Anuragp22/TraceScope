@@ -41,6 +41,8 @@ func BuildFromSCIPFiles(indexPaths []string) (*GraphData, error) {
 		graphData:         &GraphData{IndexSource: "scip", FileMetadata: map[string]*FileMetadata{}},
 		nodeMap:           map[string]*Node{},
 		fileNodeByPath:    map[string]string{},
+		packageByFilePath: map[string]string{},
+		packageFileIDs:    map[string][]string{},
 		sourceLinesByPath: map[string][]string{},
 		symbolNodeByID:    map[string]string{},
 		symbolInfoByID:    map[string]*scip.SymbolInformation{},
@@ -73,6 +75,8 @@ type scipGraphBuilder struct {
 	graphData         *GraphData
 	nodeMap           map[string]*Node
 	fileNodeByPath    map[string]string
+	packageByFilePath map[string]string
+	packageFileIDs    map[string][]string
 	sourceLinesByPath map[string][]string
 	symbolNodeByID    map[string]string
 	symbolInfoByID    map[string]*scip.SymbolInformation
@@ -168,6 +172,14 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 			if nodeType == "" {
 				continue
 			}
+			if pkg := scipPackageForSymbol(symbol); pkg != "" {
+				if b.packageByFilePath[filePath] == "" {
+					b.packageByFilePath[filePath] = pkg
+				}
+				if !isSCIPTestFile(filePath) {
+					b.packageFileIDs[pkg] = appendUnique(b.packageFileIDs[pkg], fileID)
+				}
+			}
 
 			nodeID := makeSCIPNodeID(symbol, filePath)
 			if node, exists := b.nodeMap[nodeID]; exists {
@@ -254,19 +266,23 @@ func (b *scipGraphBuilder) registerReferenceEdges(documents []*scip.Document) {
 				continue
 			}
 			targetID := b.symbolNodeByID[occ.GetSymbol()]
-			if targetID == "" {
-				continue
-			}
 			if isSCIPImportRole(occ.GetSymbolRoles()) {
-				target := b.nodeMap[targetID]
-				if target == nil {
-					continue
+				targetFileID := ""
+				if targetID != "" {
+					if target := b.nodeMap[targetID]; target != nil {
+						targetFileID = b.fileNodeByPath[canonicalPath(target.FilePath)]
+					}
 				}
-				targetFileID := b.fileNodeByPath[canonicalPath(target.FilePath)]
+				if targetFileID == "" {
+					targetFileID = b.packageImportFileID(occ.GetSymbol())
+				}
 				if targetFileID == "" || targetFileID == fileID {
 					continue
 				}
 				b.addEdge(fileID, targetFileID, EdgeImports, EdgeConfidenceExact)
+				continue
+			}
+			if targetID == "" {
 				continue
 			}
 			sourceID := fileID
@@ -278,8 +294,38 @@ func (b *scipGraphBuilder) registerReferenceEdges(documents []*scip.Document) {
 				continue
 			}
 			b.addEdge(sourceID, targetID, EdgeCalls, EdgeConfidenceExact)
+
+			target := b.nodeMap[targetID]
+			targetFileID := ""
+			if target != nil {
+				targetFileID = b.packageFileIDForPackage(target.Package)
+				if targetFileID == "" {
+					targetFileID = b.fileNodeByPath[canonicalPath(target.FilePath)]
+				}
+			}
+			if target != nil &&
+				targetFileID != "" &&
+				targetFileID != fileID &&
+				b.packageByFilePath[filePath] != "" &&
+				target.Package != "" &&
+				b.packageByFilePath[filePath] != target.Package {
+				b.addEdge(fileID, targetFileID, EdgeImports, EdgeConfidenceExact)
+			}
 		}
 	}
+}
+
+func (b *scipGraphBuilder) packageImportFileID(symbol string) string {
+	return b.packageFileIDForPackage(scipPackageForSymbol(symbol))
+}
+
+func (b *scipGraphBuilder) packageFileIDForPackage(pkg string) string {
+	ids := b.packageFileIDs[pkg]
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Strings(ids)
+	return ids[0]
 }
 
 func (b *scipGraphBuilder) addEdge(sourceID, targetID string, edgeType EdgeType, confidence EdgeConfidence) {
@@ -448,7 +494,27 @@ func scipPackageForSymbol(symbol string) string {
 	if len(parts) < 3 {
 		return ""
 	}
+	if len(parts) >= 5 {
+		for _, descriptor := range parts[4:] {
+			if pkg := scipPackageDescriptorPath(descriptor); pkg != "" {
+				return pkg
+			}
+		}
+	}
 	return parts[2]
+}
+
+func scipPackageDescriptorPath(descriptor string) string {
+	descriptor = strings.TrimSpace(descriptor)
+	if !strings.HasPrefix(descriptor, "`") {
+		return ""
+	}
+	end := strings.Index(descriptor[1:], "`")
+	if end < 0 {
+		return ""
+	}
+	pkg := descriptor[1 : end+1]
+	return strings.TrimSuffix(pkg, "/")
 }
 
 func scipEnclosingSymbol(symbol string) string {

@@ -55,3 +55,25 @@ func TestCompareGraphShape_IgnoresSyntheticDefaultFunctionAliases(t *testing.T) 
 		t.Fatalf("expected synthetic default alias edges to be ignored, got %+v", comparison)
 	}
 }
+
+func TestCompareGraphShape_NormalizesGoImportRepresentativeFiles(t *testing.T) {
+	base := &GraphData{
+		Nodes: []Node{
+			{ID: "main", Type: NodeFile, Name: "main.go", FilePath: "cmd/tracescope/main.go", Language: "go"},
+			{ID: "index", Type: NodeFile, Name: "index.go", FilePath: "internal/cmd/index.go", Language: "go"},
+		},
+		Edges: []Edge{{Source: "main", Target: "index", Type: EdgeImports}},
+	}
+	candidate := &GraphData{
+		Nodes: []Node{
+			{ID: "main", Type: NodeFile, Name: "main.go", FilePath: "cmd/tracescope/main.go", Language: "go"},
+			{ID: "root", Type: NodeFile, Name: "root.go", FilePath: "internal/cmd/root.go", Language: "go"},
+		},
+		Edges: []Edge{{Source: "main", Target: "root", Type: EdgeImports}},
+	}
+
+	comparison := CompareGraphShape(base, candidate, "", 10)
+	if comparison.MissingEdgeCount != 0 || comparison.ExtraEdgeCount != 0 {
+		t.Fatalf("expected Go package import representatives to compare equal, got %+v", comparison)
+	}
+}

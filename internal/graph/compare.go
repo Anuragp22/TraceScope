@@ -57,6 +57,7 @@ func graphSignatureSets(gd *GraphData, root string) (map[string]struct{}, map[st
 
 	nodeSignatures := map[string]struct{}{}
 	nodeSignatureByID := map[string]string{}
+	nodeByID := map[string]Node{}
 	for _, node := range gd.Nodes {
 		if node.Type == NodeFunction && node.Name == "default" {
 			continue
@@ -64,6 +65,7 @@ func graphSignatureSets(gd *GraphData, root string) (map[string]struct{}, map[st
 		signature := graphNodeSignature(node, root)
 		nodeSignatures[signature] = struct{}{}
 		nodeSignatureByID[node.ID] = signature
+		nodeByID[node.ID] = node
 	}
 
 	edgeSignatures := map[string]struct{}{}
@@ -73,14 +75,43 @@ func graphSignatureSets(gd *GraphData, root string) (map[string]struct{}, map[st
 		if sourceSignature == "" || targetSignature == "" {
 			continue
 		}
-		edgeSignatures[fmt.Sprintf("%s -> %s [%s]", sourceSignature, targetSignature, edge.Type)] = struct{}{}
+		edgeSignatures[graphEdgeSignature(edge, nodeByID, sourceSignature, targetSignature, root)] = struct{}{}
 	}
 	return nodeSignatures, edgeSignatures
+}
+
+func graphEdgeSignature(edge Edge, nodeByID map[string]Node, sourceSignature, targetSignature, root string) string {
+	if edge.Type == EdgeImports {
+		sourceNode := nodeByID[edge.Source]
+		targetNode := nodeByID[edge.Target]
+		if sourceNode.Type == NodeFile && targetNode.Type == NodeFile &&
+			sourceNode.Language == "go" && targetNode.Language == "go" {
+			targetPath := goImportPackagePath(targetNode.FilePath)
+			targetSignature = fmt.Sprintf("%s:%s:%s", targetNode.Type, rootRelativeGraphPath(targetPath, root), filepathBaseNameForSignature(targetPath))
+		}
+	}
+	return fmt.Sprintf("%s -> %s [%s]", sourceSignature, targetSignature, edge.Type)
 }
 
 func graphNodeSignature(node Node, root string) string {
 	path := rootRelativeGraphPath(node.FilePath, root)
 	return fmt.Sprintf("%s:%s:%s", node.Type, path, node.Name)
+}
+
+func goImportPackagePath(path string) string {
+	normalized := canonicalPath(path)
+	if idx := strings.LastIndexByte(normalized, '/'); idx >= 0 {
+		return normalized[:idx]
+	}
+	return normalized
+}
+
+func filepathBaseNameForSignature(path string) string {
+	normalized := canonicalPath(path)
+	if idx := strings.LastIndexByte(normalized, '/'); idx >= 0 && idx+1 < len(normalized) {
+		return normalized[idx+1:]
+	}
+	return normalized
 }
 
 func rootRelativeGraphPath(path, root string) string {
