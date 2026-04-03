@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -62,6 +63,15 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	graphFile := filepath.Join(outDir, "graph.json")
 	cacheFile := filepath.Join(outDir, "parse_cache.json")
 	scipFile := filepath.Join(absPath, "index.scip")
+
+	if _, err := os.Stat(scipFile); err != nil {
+		generated, genErr := generateSCIPIndex(absPath, files, scipFile)
+		if genErr != nil {
+			log.Warn().Err(genErr).Msg("SCIP generation failed, falling back to parser")
+		} else if generated {
+			fmt.Fprintf(os.Stderr, "  Generated SCIP index: %s\n", scipFile)
+		}
+	}
 
 	if _, err := os.Stat(scipFile); err == nil {
 		fmt.Fprintf(os.Stderr, "  Found SCIP index: %s\n", scipFile)
@@ -185,6 +195,70 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	printIndexStats(graphData, reParsed, cached, time.Since(start), graphFile)
 
 	return nil
+}
+
+var scipLookPath = exec.LookPath
+
+var runSCIPCommand = func(dir, name string, args ...string) error {
+	command := exec.Command(name, args...)
+	command.Dir = dir
+	command.Stdout = os.Stderr
+	command.Stderr = os.Stderr
+	return command.Run()
+}
+
+func generateSCIPIndex(root string, files map[parser.Language][]string, scipFile string) (bool, error) {
+	candidates := []struct {
+		name    string
+		args    []string
+		markers []string
+		enabled bool
+	}{
+		{
+			name:    "scip-go",
+			markers: []string{"go.mod"},
+			enabled: len(files[parser.LangGo]) > 0,
+		},
+		{
+			name:    "scip-typescript",
+			args:    []string{"index"},
+			markers: []string{"package.json"},
+			enabled: len(files[parser.LangTypeScript]) > 0 || len(files[parser.LangJavaScript]) > 0,
+		},
+		{
+			name:    "scip-python",
+			args:    []string{"index", ".", "--project-name", filepath.Base(root)},
+			markers: []string{"pyproject.toml", "requirements.txt"},
+			enabled: len(files[parser.LangPython]) > 0,
+		},
+	}
+
+	for _, candidate := range candidates {
+		if !candidate.enabled || !hasAnyMarker(root, candidate.markers) {
+			continue
+		}
+		if _, err := scipLookPath(candidate.name); err != nil {
+			continue
+		}
+		if err := runSCIPCommand(root, candidate.name, candidate.args...); err != nil {
+			return false, fmt.Errorf("running %s: %w", candidate.name, err)
+		}
+		if _, err := os.Stat(scipFile); err != nil {
+			return false, fmt.Errorf("%s completed but %s was not created", candidate.name, scipFile)
+		}
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func hasAnyMarker(root string, markers []string) bool {
+	for _, marker := range markers {
+		if _, err := os.Stat(filepath.Join(root, marker)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func storeGraph(graphFile string, graphData *graph.GraphData) error {
