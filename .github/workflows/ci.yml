@@ -16,8 +16,17 @@ jobs:
         with:
           go-version: "1.22"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install GCC
         run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Install SCIP indexers
+        run: |
+          go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          npm install -g @sourcegraph/scip-typescript@0.4.0
 
       - name: Build
         env:
@@ -28,6 +37,16 @@ jobs:
         env:
           CGO_ENABLED: "1"
         run: go test ./... -race -count=1 -timeout 120s
+
+      - name: SCIP index
+        env:
+          CGO_ENABLED: "1"
+        run: go run ./cmd/tracescope index .
+
+      - name: SCIP validation
+        env:
+          CGO_ENABLED: "1"
+        run: go run ./cmd/tracescope validate-scip .
 
   lint:
     runs-on: ubuntu-latest
