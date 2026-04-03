@@ -97,7 +97,7 @@ func TestGenerateSCIPIndex_SelectsGoIndexer(t *testing.T) {
 	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-go": true}, func(workdir, name string, args ...string) error {
 		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
-		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
+		return writeStubSCIPIndex(filepath.Join(workdir, "index.scip"), "main.go")
 	})
 	defer resetSCIPHooks()
 
@@ -128,7 +128,7 @@ func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
 	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-typescript": true}, func(workdir, name string, args ...string) error {
 		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
-		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
+		return writeStubSCIPIndex(filepath.Join(workdir, "index.scip"), "app.ts")
 	})
 	defer resetSCIPHooks()
 
@@ -170,7 +170,7 @@ func TestGenerateSCIPIndex_SelectsNestedTypeScriptProjectRoots(t *testing.T) {
 	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-typescript": true}, func(workdir, name string, args ...string) error {
 		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
-		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
+		return writeStubSCIPIndex(filepath.Join(workdir, "index.scip"), "app/page.tsx")
 	})
 	defer resetSCIPHooks()
 
@@ -208,6 +208,14 @@ func TestGenerateSCIPIndex_SelectsNestedTypeScriptProjectRoots(t *testing.T) {
 	}
 	assertIndexerStatus(t, statuses, "scip-typescript@web", "generated")
 	assertIndexerStatus(t, statuses, "scip-typescript@web/admin", "generated")
+
+	gd, err := graph.BuildFromSCIP(generated[1])
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed for nested TS output: %v", err)
+	}
+	if findNodePath(gd, "web/app/page.tsx") == "" && findNodePath(gd, "web/admin/app/page.tsx") == "" {
+		t.Fatalf("expected nested TS document path to be rewritten with project prefix, got %+v", gd.Nodes)
+	}
 }
 
 func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
@@ -223,7 +231,7 @@ func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
 	var called []string
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-python": true}, func(workdir, name string, args ...string) error {
 		called = append(called, fmt.Sprintf("%s:%s:%v", workdir, name, args))
-		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte("stub"), 0o600)
+		return writeStubSCIPIndex(filepath.Join(workdir, "index.scip"), "app.py")
 	})
 	defer resetSCIPHooks()
 
@@ -288,7 +296,7 @@ func TestGenerateSCIPIndexes_MergesMultipleLanguageIndexes(t *testing.T) {
 		"scip-typescript": true,
 	}, func(workdir, name string, args ...string) error {
 		called = append(called, name)
-		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte(name), 0o600)
+		return writeStubSCIPIndex(filepath.Join(workdir, "index.scip"), "main.go")
 	})
 	defer resetSCIPHooks()
 
@@ -384,7 +392,7 @@ func TestGenerateSCIPIndexes_RegeneratesStaleCache(t *testing.T) {
 	calls := 0
 	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-go": true}, func(workdir, name string, args ...string) error {
 		calls++
-		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte(name), 0o600)
+		return writeStubSCIPIndex(filepath.Join(workdir, "index.scip"), "main.go")
 	})
 	defer resetSCIPHooks()
 
@@ -459,4 +467,26 @@ func assertIndexerStatus(t *testing.T, statuses []graph.IndexerStatus, name, sta
 		}
 	}
 	t.Fatalf("expected status for %s in %+v", name, statuses)
+}
+
+func writeStubSCIPIndex(indexPath, relativePath string) error {
+	raw, err := proto.Marshal(&scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: relativePath,
+			Language:     "typescript",
+		}},
+	})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(indexPath, raw, 0o600)
+}
+
+func findNodePath(gd *graph.GraphData, filePath string) string {
+	for _, node := range gd.Nodes {
+		if node.FilePath == filePath {
+			return node.FilePath
+		}
+	}
+	return ""
 }

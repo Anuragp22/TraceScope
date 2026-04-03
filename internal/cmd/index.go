@@ -15,7 +15,9 @@ import (
 	"github.com/anurag/tracescope/internal/parser"
 	"github.com/fatih/color"
 	"github.com/rs/zerolog/log"
+	scip "github.com/scip-code/scip/bindings/go/scip"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 )
 
 var indexCmd = &cobra.Command{
@@ -212,6 +214,7 @@ type scipIndexerCandidate struct {
 	name       string
 	workDir    string
 	output     string
+	pathPrefix string
 	args       []string
 	markers    []string
 	sourceList []string
@@ -254,6 +257,9 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 		}
 		targetPath := filepath.Join(scipOutDir, candidate.output)
 		if scipIndexCacheFresh(targetPath, candidate.workDir, candidate.sourceList, candidate.markers) {
+			if err := rewriteSCIPDocumentPaths(targetPath, candidate.pathPrefix); err != nil {
+				return generated, statuses, fmt.Errorf("rewriting cached %s document paths: %w", candidate.name, err)
+			}
 			generated = append(generated, targetPath)
 			statuses = append(statuses, graph.IndexerStatus{
 				Name:   candidate.name,
@@ -306,6 +312,9 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 			})
 			continue
 		}
+		if err := rewriteSCIPDocumentPaths(candidateSCIPFile, candidate.pathPrefix); err != nil {
+			return generated, statuses, fmt.Errorf("rewriting %s document paths: %w", candidate.name, err)
+		}
 		if err := os.Rename(candidateSCIPFile, targetPath); err != nil {
 			return generated, statuses, fmt.Errorf("saving %s output: %w", candidate.name, err)
 		}
@@ -348,15 +357,18 @@ func buildSCIPIndexerCandidates(root string, files map[parser.Language][]string)
 		for _, projectRoot := range roots {
 			candidateName := "scip-typescript"
 			outputName := "scip-typescript.scip"
+			pathPrefix := ""
 			if rel, err := filepath.Rel(root, projectRoot); err == nil && rel != "." {
-				slug := strings.ReplaceAll(canonicalRelativePath(rel), "/", "-")
-				candidateName += "@" + canonicalRelativePath(rel)
+				pathPrefix = canonicalRelativePath(rel)
+				slug := strings.ReplaceAll(pathPrefix, "/", "-")
+				candidateName += "@" + pathPrefix
 				outputName = "scip-typescript-" + slug + ".scip"
 			}
 			candidates = append(candidates, scipIndexerCandidate{
 				name:       candidateName,
 				workDir:    projectRoot,
 				output:     outputName,
+				pathPrefix: pathPrefix,
 				args:       []string{"index"},
 				markers:    []string{"package.json"},
 				sourceList: tsProjectRoots[projectRoot],
@@ -425,6 +437,39 @@ func scipCommandName(candidateName string) string {
 
 func canonicalRelativePath(path string) string {
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func rewriteSCIPDocumentPaths(indexPath, prefix string) error {
+	if prefix == "" || prefix == "." {
+		return nil
+	}
+
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		return fmt.Errorf("reading SCIP index: %w", err)
+	}
+
+	var index scip.Index
+	if err := proto.Unmarshal(raw, &index); err != nil {
+		return fmt.Errorf("decoding SCIP index: %w", err)
+	}
+
+	for _, doc := range index.GetDocuments() {
+		relPath := canonicalRelativePath(doc.GetRelativePath())
+		if relPath == "" || relPath == "." || strings.HasPrefix(relPath, prefix+"/") {
+			continue
+		}
+		doc.RelativePath = canonicalRelativePath(filepath.Join(prefix, relPath))
+	}
+
+	updated, err := proto.Marshal(&index)
+	if err != nil {
+		return fmt.Errorf("encoding SCIP index: %w", err)
+	}
+	if err := os.WriteFile(indexPath, updated, 0o600); err != nil {
+		return fmt.Errorf("writing SCIP index: %w", err)
+	}
+	return nil
 }
 
 func scipIndexCacheFresh(indexPath, root string, sourceFiles, markers []string) bool {
