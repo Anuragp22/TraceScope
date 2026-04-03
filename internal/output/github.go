@@ -44,6 +44,7 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 
 	if len(result.AffectedFunctions) > 0 {
 		b.WriteString("### Reviewer Focus\n\n")
+		b.WriteString("Prioritize high-score public/runtime paths first; manually inspect heuristic or ambiguous paths before merging.\n\n")
 		writeTopRisksMD(&b, result.AffectedFunctions, 5)
 	}
 
@@ -118,20 +119,24 @@ func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limi
 	if limit > len(funcs) {
 		limit = len(funcs)
 	}
-	b.WriteString("| Score | Risk | Function | Why | Confidence | Impact path |\n")
-	b.WriteString("|-------|------|----------|-----|------------|-------------|\n")
+	b.WriteString("| Score | Risk | Function | File | Owner | Confidence | Why | Impact path | Inspect first |\n")
+	b.WriteString("|-------|------|----------|------|-------|------------|-----|-------------|---------------|\n")
 	for i := 0; i < limit; i++ {
 		f := funcs[i]
 		if f.Node == nil {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("| %d | %s | `%s` | %s | %s | %s |\n",
+		b.WriteString(fmt.Sprintf("| %d | %s | `%s` | `%s:%d` | %s | %s | %s | %s | %s |\n",
 			f.ReviewScore,
 			f.Risk,
 			f.Node.Name,
-			f.Reason,
+			f.Node.FilePath,
+			f.Node.StartLine,
+			formatOwnerMD(f.LastAuthor),
 			formatConfidence(f.Confidence),
+			f.Reason,
 			formatImpactPathMD(f),
+			formatInspectHintMD(f),
 		))
 	}
 	b.WriteString("\n")
@@ -201,6 +206,28 @@ func formatImpactPathMD(f analyzer.AffectedFunction) string {
 		return "-"
 	}
 	return strings.Join(parts, " -> ")
+}
+
+func formatOwnerMD(owner string) string {
+	if owner == "" {
+		return "-"
+	}
+	return owner
+}
+
+func formatInspectHintMD(f analyzer.AffectedFunction) string {
+	switch {
+	case f.Confidence == graph.EdgeConfidenceHeuristic:
+		return "Verify this call path manually; edge resolution was heuristic."
+	case f.Depth <= 1 && f.Node != nil && f.Node.IsExport:
+		return "Check API contract and direct callers first."
+	case f.CallerCount >= 5:
+		return "Audit high fan-in callers and downstream behavior."
+	case f.Node != nil && f.Node.IsTest:
+		return "Likely test-only impact; confirm no production dependency leak."
+	default:
+		return "Inspect implementation and covered tests along this path."
+	}
 }
 
 func groupByRiskMD(funcs []analyzer.AffectedFunction) (high, medium, low []analyzer.AffectedFunction) {
