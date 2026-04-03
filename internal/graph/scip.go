@@ -28,7 +28,12 @@ func BuildFromSCIPFiles(indexPaths []string) (*GraphData, error) {
 		if err != nil {
 			return nil, err
 		}
-		documents = append(documents, index.GetDocuments()...)
+		for _, doc := range index.GetDocuments() {
+			if !isProjectSCIPDocument(doc.GetRelativePath()) {
+				continue
+			}
+			documents = append(documents, doc)
+		}
 		externalSymbols = append(externalSymbols, index.GetExternalSymbols()...)
 	}
 
@@ -159,15 +164,15 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 	}
 
 	for symbol, nodeID := range b.symbolNodeByID {
-		info := b.symbolInfoByID[symbol]
-		if info == nil {
-			continue
-		}
-		parentSymbol := info.GetEnclosingSymbol()
-		if parentSymbol == "" {
-			parentSymbol = scipEnclosingSymbol(symbol)
+		var parentSymbol string
+		if info := b.symbolInfoByID[symbol]; info != nil {
+			parentSymbol = info.GetEnclosingSymbol()
 		}
 		parentID := b.symbolNodeByID[parentSymbol]
+		if parentID == "" {
+			parentSymbol = scipEnclosingSymbol(symbol)
+			parentID = b.symbolNodeByID[parentSymbol]
+		}
 		child := b.nodeMap[nodeID]
 		if parentID == "" || child == nil || child.Type != NodeFunction {
 			continue
@@ -297,21 +302,29 @@ func (b *scipGraphBuilder) nodeTypeForSymbol(symbol string) NodeType {
 			return NodeFunction
 		case "class", "struct", "interface", "trait", "enum", "type", "object":
 			return NodeClass
+		case "field", "property", "variable", "constant", "parameter", "local", "package", "module", "namespace":
+			return ""
 		}
 	}
 
+	descriptor := symbol
+	if parts := strings.Fields(strings.TrimSpace(symbol)); len(parts) > 0 {
+		descriptor = parts[len(parts)-1]
+	}
 	switch {
-	case strings.HasSuffix(symbol, "().") || strings.HasSuffix(symbol, "(#).") || strings.HasSuffix(symbol, "().") || strings.HasSuffix(symbol, "()."):
+	case strings.Contains(descriptor, "("):
 		return NodeFunction
-	case strings.HasSuffix(symbol, "#") || strings.HasSuffix(symbol, ".") || strings.HasSuffix(symbol, ":"):
+	case strings.HasSuffix(descriptor, "#") || strings.HasSuffix(descriptor, ":"):
 		return NodeClass
 	}
-	return NodeFunction
+	return ""
 }
 
 func (b *scipGraphBuilder) displayNameForSymbol(symbol string) string {
 	if info := b.symbolInfoByID[symbol]; info != nil && info.GetDisplayName() != "" {
-		return info.GetDisplayName()
+		if name := shortSCIPDescriptorName(info.GetDisplayName()); name != "" {
+			return name
+		}
 	}
 	trimmed := strings.TrimSpace(symbol)
 	if trimmed == "" {
@@ -323,16 +336,42 @@ func (b *scipGraphBuilder) displayNameForSymbol(symbol string) string {
 		descriptors = parts[3:]
 	}
 	for i := len(descriptors) - 1; i >= 0; i-- {
-		descriptor := descriptors[i]
-		name := strings.TrimRight(descriptor, ".#:/)")
-		if idx := strings.IndexByte(name, '('); idx >= 0 {
-			name = name[:idx]
-		}
-		if name != "" {
+		if name := shortSCIPDescriptorName(descriptors[i]); name != "" {
 			return name
 		}
 	}
 	return trimmed
+}
+
+func shortSCIPDescriptorName(descriptor string) string {
+	name := strings.TrimSpace(descriptor)
+	if name == "" {
+		return ""
+	}
+	if idx := strings.LastIndexByte(name, '/'); idx >= 0 && idx+1 < len(name) {
+		name = name[idx+1:]
+	}
+	name = strings.Trim(name, "`")
+	if strings.HasPrefix(name, "(*") || strings.HasPrefix(name, "(") {
+		if idx := strings.Index(name, ")."); idx >= 0 && idx+2 < len(name) {
+			name = name[idx+2:]
+		}
+	}
+	if idx := strings.LastIndexByte(name, '#'); idx >= 0 {
+		if idx+1 < len(name) {
+			name = name[idx+1:]
+		} else {
+			name = name[:idx]
+		}
+	}
+	name = strings.TrimRight(name, ".#:/)")
+	if idx := strings.IndexByte(name, '('); idx >= 0 {
+		name = name[:idx]
+	}
+	if idx := strings.IndexByte(name, '['); idx >= 0 {
+		name = name[:idx]
+	}
+	return strings.Trim(name, "`")
 }
 
 func makeSCIPNodeID(symbol, filePath string, startLine int) string {
@@ -349,11 +388,51 @@ func scipPackageForSymbol(symbol string) string {
 
 func scipEnclosingSymbol(symbol string) string {
 	parts := strings.Fields(strings.TrimSpace(symbol))
-	if len(parts) <= 4 {
+	if len(parts) < 4 {
+		return ""
+	}
+	if parentDescriptor := scipParentDescriptor(parts[len(parts)-1]); parentDescriptor != "" {
+		parent := append([]string{}, parts[:len(parts)-1]...)
+		parent = append(parent, parentDescriptor)
+		return strings.Join(parent, " ")
+	}
+	if len(parts) == 4 {
 		return ""
 	}
 	parent := append([]string{}, parts[:len(parts)-1]...)
 	return strings.Join(parent, " ")
+}
+
+func scipParentDescriptor(descriptor string) string {
+	descriptor = strings.TrimSpace(descriptor)
+	switch {
+	case descriptor == "":
+		return ""
+	case strings.HasPrefix(descriptor, "(*") && strings.Contains(descriptor, ")."):
+		receiver := strings.TrimPrefix(descriptor, "(*")
+		receiver = receiver[:strings.Index(receiver, ").")]
+		receiver = strings.TrimPrefix(receiver, "*")
+		if receiver == "" {
+			return ""
+		}
+		return receiver + "#"
+	case strings.HasPrefix(descriptor, "(") && strings.Contains(descriptor, ")."):
+		receiver := strings.TrimPrefix(descriptor, "(")
+		receiver = receiver[:strings.Index(receiver, ").")]
+		receiver = strings.TrimPrefix(receiver, "*")
+		if receiver == "" {
+			return ""
+		}
+		return receiver + "#"
+	case strings.Contains(descriptor, "#") && strings.Contains(descriptor, "("):
+		hash := strings.IndexByte(descriptor, '#')
+		if hash <= 0 {
+			return ""
+		}
+		return descriptor[:hash+1]
+	default:
+		return ""
+	}
 }
 
 func scipOccurrenceLines(scipRange []int32) (int, int) {
@@ -429,4 +508,12 @@ func countSCIPDefinitions(doc *scip.Document) int {
 		}
 	}
 	return count
+}
+
+func isProjectSCIPDocument(relativePath string) bool {
+	path := canonicalPath(relativePath)
+	if path == "" || path == "." || strings.HasPrefix(path, "../") || strings.HasPrefix(path, "/") {
+		return false
+	}
+	return !strings.Contains(path, ":/")
 }

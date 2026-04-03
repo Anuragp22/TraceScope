@@ -355,6 +355,108 @@ func TestBuildFromSCIP_MapsInheritanceRelationshipsAndDedupesReferences(t *testi
 	}
 }
 
+func TestBuildFromSCIP_InfersGoMethodParentAndSkipsVariableSymbols(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "builder.go",
+			Language:     "go",
+			Occurrences: []*scip.Occurrence{
+				{
+					Range:       []int32{0, 5, 12},
+					Symbol:      "scip-go gomod example.com/acme/pkg Builder#",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{1, 18, 23},
+					Symbol:      "scip-go gomod example.com/acme/pkg (*Builder).Build().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{2, 4, 12},
+					Symbol:      "scip-go gomod example.com/acme/pkg replacer.",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+			},
+			Symbols: []*scip.SymbolInformation{
+				{
+					Symbol:      "scip-go gomod example.com/acme/pkg Builder#",
+					Kind:        scip.SymbolInformation_Struct,
+					DisplayName: "Builder",
+				},
+				{
+					Symbol:      "scip-go gomod example.com/acme/pkg (*Builder).Build().",
+					Kind:        scip.SymbolInformation_Method,
+					DisplayName: "Build",
+				},
+				{
+					Symbol:      "scip-go gomod example.com/acme/pkg replacer.",
+					Kind:        scip.SymbolInformation_Variable,
+					DisplayName: "replacer",
+				},
+			},
+		}},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	builderID := findNodeIDByNameAndFile(gd, "Builder", "builder.go")
+	buildID := findNodeIDByNameAndFile(gd, "Build", "builder.go")
+	if builderID == "" || buildID == "" {
+		t.Fatalf("expected Builder and Build nodes, got %+v", gd.Nodes)
+	}
+	if !hasEdge(gd, builderID, buildID, EdgeContains) {
+		t.Fatal("expected Builder -> Build CONTAINS edge")
+	}
+	if replacerID := findNodeIDByNameAndFile(gd, "replacer", "builder.go"); replacerID != "" {
+		t.Fatalf("expected variable symbol to be skipped, got node %s", replacerID)
+	}
+}
+
+func TestBuildFromSCIP_InfersMethodParentWithoutSymbolInformation(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "builder.go",
+			Language:     "go",
+			Occurrences: []*scip.Occurrence{
+				{
+					Range:       []int32{0, 5, 12},
+					Symbol:      "scip-go gomod example.com/acme/pkg Builder#",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{1, 18, 23},
+					Symbol:      "scip-go gomod example.com/acme/pkg (*Builder).Build().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+			},
+			Symbols: []*scip.SymbolInformation{{
+				Symbol:      "scip-go gomod example.com/acme/pkg Builder#",
+				Kind:        scip.SymbolInformation_Struct,
+				DisplayName: "Builder",
+			}},
+		}},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	builderID := findNodeIDByNameAndFile(gd, "Builder", "builder.go")
+	buildID := findNodeIDByNameAndFile(gd, "Build", "builder.go")
+	if builderID == "" || buildID == "" {
+		t.Fatalf("expected Builder and Build nodes, got %+v", gd.Nodes)
+	}
+	if !hasEdge(gd, builderID, buildID, EdgeContains) {
+		t.Fatal("expected inferred Builder -> Build CONTAINS edge without method SymbolInformation")
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {
