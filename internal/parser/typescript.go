@@ -72,7 +72,7 @@ func (p *TypeScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				}
 				for j := 0; j < int(child.ChildCount()); j++ {
 					val := child.Child(j)
-					if val.Type() == "arrow_function" || val.Type() == "function_expression" {
+					if (val.Type() == "arrow_function" || val.Type() == "function_expression") && shouldRecordJSVariableFunction(node) {
 						result.Functions = append(result.Functions, FunctionDef{
 							Name:      name,
 							StartLine: int(node.StartPoint().Row) + 1,

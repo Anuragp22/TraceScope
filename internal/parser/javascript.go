@@ -60,7 +60,7 @@ func (p *JavaScriptParser) walk(node *sitter.Node, source []byte, result *FileRe
 				// Check if value is arrow_function or function_expression
 				for j := 0; j < int(child.ChildCount()); j++ {
 					val := child.Child(j)
-					if val.Type() == "arrow_function" || val.Type() == "function_expression" || val.Type() == "function" {
+					if (val.Type() == "arrow_function" || val.Type() == "function_expression" || val.Type() == "function") && shouldRecordJSVariableFunction(node) {
 						result.Functions = append(result.Functions, FunctionDef{
 							Name:      name,
 							StartLine: int(node.StartPoint().Row) + 1,
@@ -363,4 +363,14 @@ func isJSTestFile(path string) bool {
 		strings.Contains(lower, ".spec.") ||
 		strings.Contains(lower, "__tests__") ||
 		strings.Contains(lower, "_test.")
+}
+
+func shouldRecordJSVariableFunction(node *sitter.Node) bool {
+	for parent := node.Parent(); parent != nil; parent = parent.Parent() {
+		switch parent.Type() {
+		case "function_declaration", "function_expression", "arrow_function", "method_definition":
+			return false
+		}
+	}
+	return true
 }

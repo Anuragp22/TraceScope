@@ -58,6 +58,9 @@ func graphSignatureSets(gd *GraphData, root string) (map[string]struct{}, map[st
 	nodeSignatures := map[string]struct{}{}
 	nodeSignatureByID := map[string]string{}
 	for _, node := range gd.Nodes {
+		if node.Type == NodeFunction && node.Name == "default" {
+			continue
+		}
 		signature := graphNodeSignature(node, root)
 		nodeSignatures[signature] = struct{}{}
 		nodeSignatureByID[node.ID] = signature

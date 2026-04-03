@@ -11,9 +11,10 @@ func TestWalkDirectory(t *testing.T) {
 	dir := t.TempDir()
 
 	files := map[string]string{
-		"main.go":                "package main",
+		"main.go":               "package main",
 		"utils/helper.go":       "package utils",
 		"src/app.js":            "const x = 1;",
+		"src/vendor.min.js":     "const minified = true;",
 		"src/app.ts":            "const x: number = 1;",
 		"lib/module.py":         "def foo(): pass",
 		"node_modules/pkg/a.js": "skip",

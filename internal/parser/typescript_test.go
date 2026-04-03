@@ -100,3 +100,34 @@ function main() {
 		t.Fatal("expected user.run() call to be parsed")
 	}
 }
+
+func TestTSParser_SkipsNestedLocalCallbackDefinitions(t *testing.T) {
+	source := []byte(`
+export default function ExplorePage() {
+  const handleBack = () => {
+    return "back";
+  };
+
+  return handleBack();
+}
+
+const buildView = () => "view";
+`)
+
+	p := NewTypeScriptParser()
+	result, err := p.Parse("page.tsx", source)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	names := map[string]bool{}
+	for _, fn := range result.Functions {
+		names[fn.Name] = true
+	}
+	if names["handleBack"] {
+		t.Fatalf("expected nested local callback handleBack to be skipped, got %+v", result.Functions)
+	}
+	if !names["buildView"] {
+		t.Fatalf("expected top-level buildView function to be kept, got %+v", result.Functions)
+	}
+}

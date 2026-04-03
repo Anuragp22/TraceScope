@@ -64,7 +64,7 @@ func WalkDirectory(root string) (map[Language][]string, error) {
 		}
 
 		ext := filepath.Ext(path)
-		if lang, ok := extensionToLanguage[ext]; ok {
+		if lang, ok := extensionToLanguage[ext]; ok && !shouldSkipSourceFile(path) {
 			// Still include test files — useful for test detection
 			result[lang] = append(result[lang], path)
 		}
@@ -73,4 +73,9 @@ func WalkDirectory(root string) (map[Language][]string, error) {
 	})
 
 	return result, err
+}
+
+func shouldSkipSourceFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return strings.HasSuffix(base, ".min.js") || strings.HasSuffix(base, ".min.jsx")
 }

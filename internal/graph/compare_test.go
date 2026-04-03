@@ -26,3 +26,32 @@ func TestCompareGraphShape_NormalizesRootRelativePaths(t *testing.T) {
 		t.Fatalf("expected no edge mismatch, got %+v", comparison)
 	}
 }
+
+func TestCompareGraphShape_IgnoresSyntheticDefaultFunctionAliases(t *testing.T) {
+	base := &GraphData{
+		Nodes: []Node{
+			{ID: "file", Type: NodeFile, Name: "page.tsx", FilePath: "web/app/page.tsx"},
+			{ID: "default", Type: NodeFunction, Name: "default", FilePath: "web/app/page.tsx", StartLine: 1},
+			{ID: "page", Type: NodeFunction, Name: "DashboardPage", FilePath: "web/app/page.tsx", StartLine: 1},
+		},
+		Edges: []Edge{
+			{Source: "file", Target: "default", Type: EdgeContains},
+			{Source: "file", Target: "page", Type: EdgeContains},
+		},
+	}
+	candidate := &GraphData{
+		Nodes: []Node{
+			{ID: "file", Type: NodeFile, Name: "page.tsx", FilePath: "web/app/page.tsx"},
+			{ID: "page", Type: NodeFunction, Name: "DashboardPage", FilePath: "web/app/page.tsx", StartLine: 1},
+		},
+		Edges: []Edge{{Source: "file", Target: "page", Type: EdgeContains}},
+	}
+
+	comparison := CompareGraphShape(base, candidate, "", 10)
+	if comparison.MissingNodeCount != 0 || comparison.ExtraNodeCount != 0 {
+		t.Fatalf("expected synthetic default alias to be ignored, got %+v", comparison)
+	}
+	if comparison.MissingEdgeCount != 0 || comparison.ExtraEdgeCount != 0 {
+		t.Fatalf("expected synthetic default alias edges to be ignored, got %+v", comparison)
+	}
+}
