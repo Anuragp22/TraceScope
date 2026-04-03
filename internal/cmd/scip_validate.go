@@ -42,7 +42,7 @@ func runSCIPValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("walking directory: %w", err)
 	}
 
-	scipFiles, err := collectSCIPIndexes(absPath, filepath.Join(absPath, ".tracescope"), files)
+	scipFiles, _, err := collectSCIPIndexes(absPath, filepath.Join(absPath, ".tracescope"), files)
 	if err != nil {
 		return fmt.Errorf("collecting SCIP indexes: %w", err)
 	}

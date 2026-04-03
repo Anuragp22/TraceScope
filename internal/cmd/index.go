@@ -64,7 +64,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	graphFile := filepath.Join(outDir, "graph.json")
 	cacheFile := filepath.Join(outDir, "parse_cache.json")
 
-	scipFiles, err := collectSCIPIndexes(absPath, outDir, files)
+	scipFiles, indexerStatuses, err := collectSCIPIndexes(absPath, outDir, files)
 	if err != nil {
 		log.Warn().Err(err).Msg("SCIP generation failed, falling back to parser")
 	}
@@ -78,6 +78,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("loading SCIP index: %w", err)
 		}
 		graphData.RootPath = absPath
+		graphData.IndexerStatuses = indexerStatuses
 
 		if err := os.MkdirAll(outDir, 0755); err != nil {
 			return fmt.Errorf("creating output directory: %w", err)
@@ -159,6 +160,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	graphData := builder.Build(allResults)
 	graphData.RootPath = absPath
 	graphData.IndexSource = "parser"
+	graphData.IndexerStatuses = indexerStatuses
 
 	// Step 5: Update parse cache
 	newCache := parser.NewParseCache()
@@ -204,15 +206,19 @@ var runSCIPCommand = func(dir, name string, args ...string) error {
 	return command.Run()
 }
 
-func collectSCIPIndexes(root, outDir string, files map[parser.Language][]string) ([]string, error) {
+func collectSCIPIndexes(root, outDir string, files map[parser.Language][]string) ([]string, []graph.IndexerStatus, error) {
 	scipFile := filepath.Join(root, "index.scip")
 	if _, err := os.Stat(scipFile); err == nil {
-		return []string{scipFile}, nil
+		return []string{scipFile}, []graph.IndexerStatus{{
+			Name:   "index.scip",
+			State:  "used_existing",
+			Output: scipFile,
+		}}, nil
 	}
 	return generateSCIPIndexes(root, filepath.Join(outDir, "scip"), files, scipFile)
 }
 
-func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]string, scipFile string) ([]string, error) {
+func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]string, scipFile string) ([]string, []graph.IndexerStatus, error) {
 	candidates := []struct {
 		name    string
 		output  string
@@ -243,41 +249,81 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 	}
 
 	var generated []string
+	statuses := make([]graph.IndexerStatus, 0, len(candidates))
 	for _, candidate := range candidates {
-		if !candidate.enabled || !hasAnyMarker(root, candidate.markers) {
+		if !candidate.enabled {
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "skipped",
+				Reason: "no matching source files",
+			})
+			continue
+		}
+		if !hasAnyMarker(root, candidate.markers) {
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "skipped",
+				Reason: fmt.Sprintf("missing project marker (%v)", candidate.markers),
+			})
 			continue
 		}
 		if candidate.name == "scip-python" && runtime.GOOS == "windows" {
 			log.Warn().
 				Str("indexer", candidate.name).
 				Msg("skipping scip-python on Windows because the published package fails on native Windows path separators; use WSL/Linux CI for Python SCIP indexing")
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "skipped",
+				Reason: "scip-python is disabled on native Windows; use WSL/Linux CI",
+			})
 			continue
 		}
 		if _, err := scipLookPath(candidate.name); err != nil {
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "missing_binary",
+				Reason: err.Error(),
+			})
 			continue
 		}
 		if err := os.MkdirAll(scipOutDir, 0755); err != nil {
-			return generated, fmt.Errorf("creating SCIP output dir: %w", err)
+			return generated, statuses, fmt.Errorf("creating SCIP output dir: %w", err)
 		}
 		if err := os.Remove(scipFile); err != nil && !os.IsNotExist(err) {
-			return generated, fmt.Errorf("removing stale root SCIP index: %w", err)
+			return generated, statuses, fmt.Errorf("removing stale root SCIP index: %w", err)
 		}
 		if err := runSCIPCommand(root, candidate.name, candidate.args...); err != nil {
 			log.Warn().Err(err).Str("indexer", candidate.name).Msg("SCIP indexer failed")
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "failed",
+				Reason: err.Error(),
+			})
 			continue
 		}
 		if _, err := os.Stat(scipFile); err != nil {
 			log.Warn().Str("indexer", candidate.name).Str("path", scipFile).Msg("SCIP indexer completed without producing index.scip")
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "failed",
+				Reason: "indexer completed without producing index.scip",
+			})
 			continue
 		}
 		targetPath := filepath.Join(scipOutDir, candidate.output)
 		if err := os.Rename(scipFile, targetPath); err != nil {
-			return generated, fmt.Errorf("saving %s output: %w", candidate.name, err)
+			return generated, statuses, fmt.Errorf("saving %s output: %w", candidate.name, err)
 		}
 		generated = append(generated, targetPath)
+		statuses = append(statuses, graph.IndexerStatus{
+			Name:      candidate.name,
+			State:     "generated",
+			Output:    targetPath,
+			Generated: true,
+		})
 	}
 
-	return generated, nil
+	return generated, statuses, nil
 }
 
 func hasAnyMarker(root string, markers []string) bool {
@@ -307,6 +353,19 @@ func printIndexStats(graphData *graph.GraphData, reParsed, cached int, elapsed t
 
 	if graphData.IndexSource != "" {
 		fmt.Fprintf(os.Stderr, "    %-12s %s\n", "source:", graphData.IndexSource)
+	}
+	if len(graphData.IndexerStatuses) > 0 {
+		fmt.Fprintln(os.Stderr, "    indexers:")
+		for _, status := range graphData.IndexerStatuses {
+			switch {
+			case status.Output != "":
+				fmt.Fprintf(os.Stderr, "      - %s: %s (%s)\n", status.Name, status.State, status.Output)
+			case status.Reason != "":
+				fmt.Fprintf(os.Stderr, "      - %s: %s (%s)\n", status.Name, status.State, status.Reason)
+			default:
+				fmt.Fprintf(os.Stderr, "      - %s: %s\n", status.Name, status.State)
+			}
+		}
 	}
 
 	typeCounts := map[graph.NodeType]int{}

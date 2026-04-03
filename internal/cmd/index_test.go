@@ -57,6 +57,7 @@ func TestRunIndex_PrefersSCIPWhenPresent(t *testing.T) {
 	if gd.IndexSource != "scip" {
 		t.Fatalf("expected scip index source, got %q", gd.IndexSource)
 	}
+	assertIndexerStatus(t, gd.IndexerStatuses, "index.scip", "used_existing")
 }
 
 func TestRunIndex_FallsBackToParserWithoutSCIP(t *testing.T) {
@@ -80,6 +81,7 @@ func main() {}
 	if gd.IndexSource != "parser" {
 		t.Fatalf("expected parser index source, got %q", gd.IndexSource)
 	}
+	assertIndexerStatus(t, gd.IndexerStatuses, "scip-go", "skipped")
 	if len(gd.Nodes) == 0 {
 		t.Fatal("expected parser fallback graph nodes")
 	}
@@ -98,7 +100,7 @@ func TestGenerateSCIPIndex_SelectsGoIndexer(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangGo: {filepath.Join(dir, "main.go")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
@@ -113,6 +115,7 @@ func TestGenerateSCIPIndex_SelectsGoIndexer(t *testing.T) {
 	if filepath.Base(generated[0]) != "scip-go.scip" {
 		t.Fatalf("expected scip-go.scip output, got %q", generated[0])
 	}
+	assertIndexerStatus(t, statuses, "scip-go", "generated")
 }
 
 func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
@@ -128,7 +131,7 @@ func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangTypeScript: {filepath.Join(dir, "app.ts")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
@@ -143,6 +146,7 @@ func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
 	if filepath.Base(generated[0]) != "scip-typescript.scip" {
 		t.Fatalf("expected scip-typescript.scip output, got %q", generated[0])
 	}
+	assertIndexerStatus(t, statuses, "scip-typescript", "generated")
 }
 
 func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
@@ -162,7 +166,7 @@ func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangPython: {filepath.Join(dir, "app.py")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
@@ -177,6 +181,7 @@ func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
 	if filepath.Base(generated[0]) != "scip-python.scip" {
 		t.Fatalf("expected scip-python.scip output, got %q", generated[0])
 	}
+	assertIndexerStatus(t, statuses, "scip-python", "generated")
 }
 
 func TestGenerateSCIPIndex_SkipsPythonIndexerOnWindows(t *testing.T) {
@@ -195,7 +200,7 @@ func TestGenerateSCIPIndex_SkipsPythonIndexerOnWindows(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangPython: {filepath.Join(dir, "app.py")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
@@ -204,6 +209,7 @@ func TestGenerateSCIPIndex_SkipsPythonIndexerOnWindows(t *testing.T) {
 	if len(generated) != 0 {
 		t.Fatalf("expected no generated SCIP files on Windows, got %v", generated)
 	}
+	assertIndexerStatus(t, statuses, "scip-python", "skipped")
 }
 
 func TestGenerateSCIPIndexes_MergesMultipleLanguageIndexes(t *testing.T) {
@@ -225,7 +231,7 @@ func TestGenerateSCIPIndexes_MergesMultipleLanguageIndexes(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangGo:         {filepath.Join(dir, "main.go")},
 		parser.LangTypeScript: {filepath.Join(dir, "app.ts")},
 	}, filepath.Join(dir, "index.scip"))
@@ -239,6 +245,8 @@ func TestGenerateSCIPIndexes_MergesMultipleLanguageIndexes(t *testing.T) {
 	if fmt.Sprint(called) != "[scip-go scip-typescript]" {
 		t.Fatalf("expected scip-go and scip-typescript invocations, got %v", called)
 	}
+	assertIndexerStatus(t, statuses, "scip-go", "generated")
+	assertIndexerStatus(t, statuses, "scip-typescript", "generated")
 }
 
 func TestGenerateSCIPIndex_FallsBackWhenIndexerMissing(t *testing.T) {
@@ -253,7 +261,7 @@ func TestGenerateSCIPIndex_FallsBackWhenIndexerMissing(t *testing.T) {
 	})
 	defer resetSCIPHooks()
 
-	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+	generated, statuses, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
 		parser.LangGo: {filepath.Join(dir, "main.go")},
 	}, filepath.Join(dir, "index.scip"))
 	if err != nil {
@@ -262,6 +270,7 @@ func TestGenerateSCIPIndex_FallsBackWhenIndexerMissing(t *testing.T) {
 	if len(generated) > 0 {
 		t.Fatal("expected fallback when no SCIP indexer is installed")
 	}
+	assertIndexerStatus(t, statuses, "scip-go", "missing_binary")
 }
 
 func stubSCIPHooks(t *testing.T, installed map[string]bool, run func(string, string, ...string) error) func() {
@@ -282,4 +291,18 @@ func stubSCIPHooks(t *testing.T, installed map[string]bool, run func(string, str
 		scipLookPath = originalLookPath
 		runSCIPCommand = originalRunCommand
 	}
+}
+
+func assertIndexerStatus(t *testing.T, statuses []graph.IndexerStatus, name, state string) {
+	t.Helper()
+
+	for _, status := range statuses {
+		if status.Name == name {
+			if status.State != state {
+				t.Fatalf("expected %s state %q, got %q (%+v)", name, state, status.State, status)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected status for %s in %+v", name, statuses)
 }

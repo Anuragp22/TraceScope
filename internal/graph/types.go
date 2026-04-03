@@ -84,12 +84,23 @@ type FileMetadata struct {
 	NodeCount int    `json:"node_count"`
 }
 
+// IndexerStatus records which indexing backend ran and why a backend was
+// generated, skipped, or failed.
+type IndexerStatus struct {
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	Output    string `json:"output,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Generated bool   `json:"generated,omitempty"`
+}
+
 // GraphData is the serializable representation of the full dependency graph.
 type GraphData struct {
 	Nodes            []Node                   `json:"nodes"`
 	Edges            []Edge                   `json:"edges"`
 	RootPath         string                   `json:"root_path,omitempty"`
 	IndexSource      string                   `json:"index_source,omitempty"`
+	IndexerStatuses  []IndexerStatus          `json:"indexer_statuses,omitempty"`
 	FileMetadata     map[string]*FileMetadata `json:"file_metadata,omitempty"`
 	ResolutionStats  ResolutionStats          `json:"resolution_stats,omitempty"`
 	ResolutionIssues []ResolutionIssue        `json:"resolution_issues,omitempty"`
