@@ -346,6 +346,10 @@ function main() {
 }
 
 func TestBuilder_ResolvesCompilerTypedTSFactoryReceiverAcrossFiles(t *testing.T) {
+	if !parser.HasTypeScriptSemanticSupport() {
+		t.Skip("TypeScript compiler runtime not available")
+	}
+
 	dir := t.TempDir()
 	appPath := filepath.Join(dir, "app.ts")
 	servicePath := filepath.Join(dir, "service.ts")

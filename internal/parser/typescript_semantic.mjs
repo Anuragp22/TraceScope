@@ -5,15 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..", "..");
 const localTypeScript = path.join(repoRoot, "web", "node_modules", "typescript", "lib", "typescript.js");
-
-let ts;
-if (fs.existsSync(localTypeScript)) {
-  const tsModule = await import(pathToFileURL(localTypeScript).href);
-  ts = tsModule.default ?? tsModule;
-} else {
-  const tsModule = await import("typescript");
-  ts = tsModule.default ?? tsModule;
-}
+const tsModule = await import(pathToFileURL(localTypeScript).href);
+const ts = tsModule.default ?? tsModule;
 
 const input = JSON.parse(fs.readFileSync(0, "utf8") || '{"files":[]}');
 const files = Array.isArray(input.files) ? input.files : [];

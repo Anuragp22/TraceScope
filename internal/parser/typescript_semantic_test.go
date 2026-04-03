@@ -7,6 +7,10 @@ import (
 )
 
 func TestRegistry_ParseFiles_EnrichesTypeScriptFactoryReturnTypes(t *testing.T) {
+	if !HasTypeScriptSemanticSupport() {
+		t.Skip("TypeScript compiler runtime not available")
+	}
+
 	dir := t.TempDir()
 
 	servicePath := filepath.Join(dir, "service.ts")

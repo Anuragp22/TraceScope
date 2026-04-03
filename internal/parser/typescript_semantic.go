@@ -3,6 +3,7 @@ package parser
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -40,8 +41,8 @@ func enrichTypeScriptSemantics(results []*FileResult) {
 		return
 	}
 
-	scriptPath := typeScriptSemanticScriptPath()
-	if scriptPath == "" {
+	scriptPath, ok := typeScriptSemanticScriptPath()
+	if !ok {
 		return
 	}
 
@@ -98,16 +99,30 @@ func mergeTypeScriptSemanticCalls(result *FileResult, semanticCalls []tsSemantic
 	}
 }
 
-func typeScriptSemanticScriptPath() string {
+// HasTypeScriptSemanticSupport reports whether compiler-backed TS enrichment
+// can run in the current environment.
+func HasTypeScriptSemanticSupport() bool {
+	_, ok := typeScriptSemanticScriptPath()
+	return ok
+}
+
+func typeScriptSemanticScriptPath() (string, bool) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
-		return ""
+		return "", false
 	}
 	scriptPath := filepath.Join(filepath.Dir(currentFile), "typescript_semantic.mjs")
 	if _, err := exec.LookPath("node"); err != nil {
-		return ""
+		return "", false
 	}
-	return scriptPath
+	if _, err := os.Stat(typeScriptRuntimePath(filepath.Dir(currentFile))); err != nil {
+		return "", false
+	}
+	return scriptPath, true
+}
+
+func typeScriptRuntimePath(parserDir string) string {
+	return filepath.Join(parserDir, "..", "..", "web", "node_modules", "typescript", "lib", "typescript.js")
 }
 
 func canonicalSemanticPath(path string) string {
