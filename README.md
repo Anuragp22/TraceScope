@@ -5,7 +5,7 @@ A SCIP-backed PR blast-radius analyzer for code review.
 TraceScope turns a diff into a ranked impact report:
 `changed function -> dependency path -> affected code -> risk -> suggested reviewer`.
 
-## Portfolio Pitch
+## Problem & Approach
 
 **Problem:** code review usually shows what changed, but not what may break downstream.
 
@@ -16,9 +16,6 @@ GitHub PR comments.
 **What is technically interesting:** SCIP ingestion, parser fallback, cross-file graph
 construction, blast-radius traversal, call-path explanations, confidence-aware resolution
 diagnostics, and CI-friendly output.
-
-**Scope boundary:** TraceScope is a static-analysis prototype for PR impact analysis, not a
-full compiler or a replacement for an LLM reviewer like CodeRabbit.
 
 ## Demo Output
 
@@ -221,6 +218,8 @@ docs/                    Benchmarks and supporting notes
 
 ## Current Limitations
 
+- TraceScope is a static-analysis prototype for PR impact analysis, not a full compiler or a
+  replacement for an LLM reviewer like CodeRabbit
 - Static analysis is still imperfect for highly dynamic JavaScript/Python patterns
 - SCIP and parser fallback graphs do not match 1:1 because SCIP carries richer semantic edges
 - `scip-python` is skipped on native Windows because of an upstream package issue
