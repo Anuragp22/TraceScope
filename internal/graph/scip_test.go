@@ -502,6 +502,69 @@ func TestBuildFromSCIP_MapsInterfaceMethodsWithoutParameterList(t *testing.T) {
 	}
 }
 
+func TestBuildFromSCIP_SkipsStructFieldsButKeepsInterfaceMethods(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.go"), []byte(`package cfg
+
+type Config struct {
+	Enabled bool
+}
+
+type Validator interface {
+	Validate() error
+}
+`), 0o600); err != nil {
+		t.Fatalf("write config.go: %v", err)
+	}
+
+	indexPath := filepath.Join(dir, "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "config.go",
+			Language:     "go",
+			Occurrences: []*scip.Occurrence{
+				{
+					Range:       []int32{2, 5, 11},
+					Symbol:      "scip-go gomod example.com/acme/pkg Config#",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{3, 1, 8},
+					Symbol:      "scip-go gomod example.com/acme/pkg Config#Enabled.",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{6, 5, 14},
+					Symbol:      "scip-go gomod example.com/acme/pkg Validator#",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{7, 1, 9},
+					Symbol:      "scip-go gomod example.com/acme/pkg Validator#Validate.",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+			},
+		}},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	if fieldID := findNodeIDByNameAndFile(gd, "Enabled", "config.go"); fieldID != "" {
+		t.Fatalf("expected struct field Enabled to be skipped, got node %s", fieldID)
+	}
+	validatorID := findNodeIDByNameAndFile(gd, "Validator", "config.go")
+	validateID := findNodeIDByNameAndFile(gd, "Validate", "config.go")
+	if validatorID == "" || validateID == "" {
+		t.Fatalf("expected Validator and Validate nodes, got %+v", gd.Nodes)
+	}
+	if !hasEdge(gd, validatorID, validateID, EdgeContains) {
+		t.Fatal("expected Validator -> Validate CONTAINS edge")
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {

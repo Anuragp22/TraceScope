@@ -38,13 +38,15 @@ func BuildFromSCIPFiles(indexPaths []string) (*GraphData, error) {
 	}
 
 	builder := scipGraphBuilder{
-		graphData:      &GraphData{IndexSource: "scip", FileMetadata: map[string]*FileMetadata{}},
-		nodeMap:        map[string]*Node{},
-		fileNodeByPath: map[string]string{},
-		symbolNodeByID: map[string]string{},
-		symbolInfoByID: map[string]*scip.SymbolInformation{},
-		edgeSet:        map[string]struct{}{},
+		graphData:         &GraphData{IndexSource: "scip", FileMetadata: map[string]*FileMetadata{}},
+		nodeMap:           map[string]*Node{},
+		fileNodeByPath:    map[string]string{},
+		sourceLinesByPath: map[string][]string{},
+		symbolNodeByID:    map[string]string{},
+		symbolInfoByID:    map[string]*scip.SymbolInformation{},
+		edgeSet:           map[string]struct{}{},
 	}
+	builder.loadSourceLines(indexPaths, documents)
 	builder.collectSymbolInfo(documents, externalSymbols)
 	builder.registerDocuments(documents)
 	builder.registerSymbolDefinitions(documents)
@@ -68,12 +70,13 @@ func loadSCIPIndex(indexPath string) (*scip.Index, error) {
 }
 
 type scipGraphBuilder struct {
-	graphData      *GraphData
-	nodeMap        map[string]*Node
-	fileNodeByPath map[string]string
-	symbolNodeByID map[string]string
-	symbolInfoByID map[string]*scip.SymbolInformation
-	edgeSet        map[string]struct{}
+	graphData         *GraphData
+	nodeMap           map[string]*Node
+	fileNodeByPath    map[string]string
+	sourceLinesByPath map[string][]string
+	symbolNodeByID    map[string]string
+	symbolInfoByID    map[string]*scip.SymbolInformation
+	edgeSet           map[string]struct{}
 }
 
 type scipDefinitionScope struct {
@@ -93,6 +96,29 @@ func (b *scipGraphBuilder) collectSymbolInfo(documents []*scip.Document, externa
 	for _, symbolInfo := range externalSymbols {
 		if symbol := symbolInfo.GetSymbol(); symbol != "" {
 			b.symbolInfoByID[symbol] = symbolInfo
+		}
+	}
+}
+
+func (b *scipGraphBuilder) loadSourceLines(indexPaths []string, documents []*scip.Document) {
+	roots := map[string]bool{}
+	for _, indexPath := range indexPaths {
+		roots[sourceRootForSCIPIndex(indexPath)] = true
+	}
+
+	for _, doc := range documents {
+		relPath := canonicalPath(doc.GetRelativePath())
+		if relPath == "" || b.sourceLinesByPath[relPath] != nil {
+			continue
+		}
+		for root := range roots {
+			sourcePath := filepath.Join(root, filepath.FromSlash(relPath))
+			source, err := os.ReadFile(sourcePath)
+			if err != nil {
+				continue
+			}
+			b.sourceLinesByPath[relPath] = strings.Split(string(source), "\n")
+			break
 		}
 	}
 }
@@ -138,7 +164,7 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 				continue
 			}
 			startLine, endLine := scipOccurrenceLines(occ.GetRange())
-			nodeType := b.nodeTypeForSymbol(symbol)
+			nodeType := b.nodeTypeForSymbol(symbol, filePath, startLine)
 			if nodeType == "" {
 				continue
 			}
@@ -295,7 +321,7 @@ func (b *scipGraphBuilder) flushNodes() {
 	}
 }
 
-func (b *scipGraphBuilder) nodeTypeForSymbol(symbol string) NodeType {
+func (b *scipGraphBuilder) nodeTypeForSymbol(symbol, filePath string, line int) NodeType {
 	if info := b.symbolInfoByID[symbol]; info != nil {
 		switch strings.ToLower(info.GetKind().String()) {
 		case "function", "method", "constructor", "macro":
@@ -315,11 +341,29 @@ func (b *scipGraphBuilder) nodeTypeForSymbol(symbol string) NodeType {
 	case strings.Contains(descriptor, "("):
 		return NodeFunction
 	case strings.Contains(descriptor, "#") && strings.HasSuffix(descriptor, "."):
+		if !b.hasCallableSourceDeclaration(filePath, line, shortSCIPDescriptorName(descriptor)) {
+			return ""
+		}
 		return NodeFunction
 	case strings.HasSuffix(descriptor, "#") || strings.HasSuffix(descriptor, ":"):
 		return NodeClass
 	}
 	return ""
+}
+
+func (b *scipGraphBuilder) hasCallableSourceDeclaration(filePath string, line int, name string) bool {
+	if line <= 0 || name == "" {
+		return true
+	}
+	lines := b.sourceLinesByPath[canonicalPath(filePath)]
+	if len(lines) == 0 || line > len(lines) {
+		return true
+	}
+	text := lines[line-1]
+	if strings.Contains(text, name+"(") {
+		return true
+	}
+	return false
 }
 
 func (b *scipGraphBuilder) displayNameForSymbol(symbol string) string {
@@ -524,4 +568,12 @@ func isProjectSCIPDocument(relativePath string) bool {
 		return false
 	}
 	return !strings.Contains(path, ":/")
+}
+
+func sourceRootForSCIPIndex(indexPath string) string {
+	dir := filepath.Dir(indexPath)
+	if filepath.Base(dir) == "scip" && filepath.Base(filepath.Dir(dir)) == ".tracescope" {
+		return filepath.Dir(filepath.Dir(dir))
+	}
+	return dir
 }
