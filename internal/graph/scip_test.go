@@ -661,6 +661,53 @@ func TestBuildFromSCIP_SkipsGeneratedNextDocuments(t *testing.T) {
 	}
 }
 
+func TestBuildFromSCIP_DedupesRepeatedSymbolDefinitions(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "app/page.tsx",
+			Language:     "typescript",
+			Occurrences: []*scip.Occurrence{
+				{
+					Range:       []int32{9, 16, 34},
+					Symbol:      "scip-typescript npm demo 1.0.0 `app/page.tsx`/buildFunctionsView().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{14, 2, 20},
+					Symbol:      "scip-typescript npm demo 1.0.0 `app/page.tsx`/buildFunctionsView().",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+			},
+			Symbols: []*scip.SymbolInformation{{
+				Symbol:      "scip-typescript npm demo 1.0.0 `app/page.tsx`/buildFunctionsView().",
+				Kind:        scip.SymbolInformation_Function,
+				DisplayName: "buildFunctionsView",
+			}},
+		}},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	count := 0
+	var node Node
+	for _, candidate := range gd.Nodes {
+		if candidate.Name == "buildFunctionsView" && candidate.FilePath == "app/page.tsx" {
+			count++
+			node = candidate
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected one deduped buildFunctionsView node, got %d: %+v", count, gd.Nodes)
+	}
+	if node.StartLine != 10 || node.EndLine != 15 {
+		t.Fatalf("expected merged line span 10-15, got %d-%d", node.StartLine, node.EndLine)
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {

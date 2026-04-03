@@ -169,8 +169,15 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 				continue
 			}
 
-			nodeID := makeSCIPNodeID(symbol, filePath, startLine)
-			if _, exists := b.nodeMap[nodeID]; !exists {
+			nodeID := makeSCIPNodeID(symbol, filePath)
+			if node, exists := b.nodeMap[nodeID]; exists {
+				if startLine > 0 && (node.StartLine == 0 || startLine < node.StartLine) {
+					node.StartLine = startLine
+				}
+				if endLine > node.EndLine {
+					node.EndLine = endLine
+				}
+			} else {
 				b.nodeMap[nodeID] = &Node{
 					ID:        nodeID,
 					Type:      nodeType,
@@ -432,8 +439,8 @@ func shortSCIPDescriptorName(descriptor string) string {
 	return strings.Trim(name, "`")
 }
 
-func makeSCIPNodeID(symbol, filePath string, startLine int) string {
-	return "scip:" + hashStr(fmt.Sprintf("%s:%s:%d", symbol, canonicalPath(filePath), startLine))
+func makeSCIPNodeID(symbol, filePath string) string {
+	return "scip:" + hashStr(fmt.Sprintf("%s:%s", symbol, canonicalPath(filePath)))
 }
 
 func scipPackageForSymbol(symbol string) string {
