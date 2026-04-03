@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/anurag/tracescope/internal/graph"
 	"github.com/anurag/tracescope/internal/parser"
@@ -247,6 +248,99 @@ func TestGenerateSCIPIndexes_MergesMultipleLanguageIndexes(t *testing.T) {
 	}
 	assertIndexerStatus(t, statuses, "scip-go", "generated")
 	assertIndexerStatus(t, statuses, "scip-typescript", "generated")
+}
+
+func TestGenerateSCIPIndexes_ReusesFreshCache(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "main.go")
+	outputDir := filepath.Join(dir, ".tracescope", "scip")
+	outputPath := filepath.Join(outputDir, "scip-go.scip")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/acme\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatalf("mkdir scip output dir: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("cached"), 0o600); err != nil {
+		t.Fatalf("write cached index: %v", err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(sourcePath, now, now); err != nil {
+		t.Fatalf("chtimes main.go: %v", err)
+	}
+	if err := os.Chtimes(filepath.Join(dir, "go.mod"), now, now); err != nil {
+		t.Fatalf("chtimes go.mod: %v", err)
+	}
+	if err := os.Chtimes(outputPath, now.Add(time.Hour), now.Add(time.Hour)); err != nil {
+		t.Fatalf("chtimes cached index: %v", err)
+	}
+
+	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-go": true}, func(string, string, ...string) error {
+		t.Fatal("runSCIPCommand should not be called for a fresh SCIP cache")
+		return nil
+	})
+	defer resetSCIPHooks()
+
+	generated, statuses, err := generateSCIPIndexes(dir, outputDir, map[parser.Language][]string{
+		parser.LangGo: {sourcePath},
+	}, filepath.Join(dir, "index.scip"))
+	if err != nil {
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
+	}
+	if len(generated) != 1 || generated[0] != outputPath {
+		t.Fatalf("expected cached SCIP output %q, got %v", outputPath, generated)
+	}
+	assertIndexerStatus(t, statuses, "scip-go", "cached")
+}
+
+func TestGenerateSCIPIndexes_RegeneratesStaleCache(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "main.go")
+	outputDir := filepath.Join(dir, ".tracescope", "scip")
+	outputPath := filepath.Join(outputDir, "scip-go.scip")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/acme\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatalf("mkdir scip output dir: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("stale"), 0o600); err != nil {
+		t.Fatalf("write stale index: %v", err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(outputPath, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatalf("chtimes stale index: %v", err)
+	}
+	if err := os.Chtimes(sourcePath, now, now); err != nil {
+		t.Fatalf("chtimes main.go: %v", err)
+	}
+
+	calls := 0
+	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-go": true}, func(workdir, name string, args ...string) error {
+		calls++
+		return os.WriteFile(filepath.Join(workdir, "index.scip"), []byte(name), 0o600)
+	})
+	defer resetSCIPHooks()
+
+	generated, statuses, err := generateSCIPIndexes(dir, outputDir, map[parser.Language][]string{
+		parser.LangGo: {sourcePath},
+	}, filepath.Join(dir, "index.scip"))
+	if err != nil {
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one SCIP regeneration, got %d", calls)
+	}
+	if len(generated) != 1 || generated[0] != outputPath {
+		t.Fatalf("expected regenerated SCIP output %q, got %v", outputPath, generated)
+	}
+	assertIndexerStatus(t, statuses, "scip-go", "generated")
 }
 
 func TestGenerateSCIPIndex_FallsBackWhenIndexerMissing(t *testing.T) {

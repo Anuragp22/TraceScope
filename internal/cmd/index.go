@@ -220,31 +220,35 @@ func collectSCIPIndexes(root, outDir string, files map[parser.Language][]string)
 
 func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]string, scipFile string) ([]string, []graph.IndexerStatus, error) {
 	candidates := []struct {
-		name    string
-		output  string
-		args    []string
-		markers []string
-		enabled bool
+		name       string
+		output     string
+		args       []string
+		markers    []string
+		sourceList []string
+		enabled    bool
 	}{
 		{
-			name:    "scip-go",
-			output:  "scip-go.scip",
-			markers: []string{"go.mod"},
-			enabled: len(files[parser.LangGo]) > 0,
+			name:       "scip-go",
+			output:     "scip-go.scip",
+			markers:    []string{"go.mod"},
+			sourceList: files[parser.LangGo],
+			enabled:    len(files[parser.LangGo]) > 0,
 		},
 		{
-			name:    "scip-typescript",
-			output:  "scip-typescript.scip",
-			args:    []string{"index"},
-			markers: []string{"package.json"},
-			enabled: len(files[parser.LangTypeScript]) > 0 || len(files[parser.LangJavaScript]) > 0,
+			name:       "scip-typescript",
+			output:     "scip-typescript.scip",
+			args:       []string{"index"},
+			markers:    []string{"package.json"},
+			sourceList: append(append([]string{}, files[parser.LangTypeScript]...), files[parser.LangJavaScript]...),
+			enabled:    len(files[parser.LangTypeScript]) > 0 || len(files[parser.LangJavaScript]) > 0,
 		},
 		{
-			name:    "scip-python",
-			output:  "scip-python.scip",
-			args:    []string{"index", ".", "--project-name", filepath.Base(root)},
-			markers: []string{"pyproject.toml", "requirements.txt"},
-			enabled: len(files[parser.LangPython]) > 0,
+			name:       "scip-python",
+			output:     "scip-python.scip",
+			args:       []string{"index", ".", "--project-name", filepath.Base(root)},
+			markers:    []string{"pyproject.toml", "requirements.txt"},
+			sourceList: files[parser.LangPython],
+			enabled:    len(files[parser.LangPython]) > 0,
 		},
 	}
 
@@ -264,6 +268,16 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 				Name:   candidate.name,
 				State:  "skipped",
 				Reason: fmt.Sprintf("missing project marker (%v)", candidate.markers),
+			})
+			continue
+		}
+		targetPath := filepath.Join(scipOutDir, candidate.output)
+		if scipIndexCacheFresh(targetPath, root, candidate.sourceList, candidate.markers) {
+			generated = append(generated, targetPath)
+			statuses = append(statuses, graph.IndexerStatus{
+				Name:   candidate.name,
+				State:  "cached",
+				Output: targetPath,
 			})
 			continue
 		}
@@ -310,7 +324,6 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 			})
 			continue
 		}
-		targetPath := filepath.Join(scipOutDir, candidate.output)
 		if err := os.Rename(scipFile, targetPath); err != nil {
 			return generated, statuses, fmt.Errorf("saving %s output: %w", candidate.name, err)
 		}
@@ -324,6 +337,27 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 	}
 
 	return generated, statuses, nil
+}
+
+func scipIndexCacheFresh(indexPath, root string, sourceFiles, markers []string) bool {
+	indexInfo, err := os.Stat(indexPath)
+	if err != nil {
+		return false
+	}
+	indexTime := indexInfo.ModTime()
+
+	for _, sourceFile := range sourceFiles {
+		if sourceInfo, err := os.Stat(sourceFile); err != nil || sourceInfo.ModTime().After(indexTime) {
+			return false
+		}
+	}
+	for _, marker := range markers {
+		markerInfo, err := os.Stat(filepath.Join(root, marker))
+		if err == nil && markerInfo.ModTime().After(indexTime) {
+			return false
+		}
+	}
+	return true
 }
 
 func hasAnyMarker(root string, markers []string) bool {
