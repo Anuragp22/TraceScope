@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"testing"
 
@@ -145,6 +146,10 @@ func TestGenerateSCIPIndex_SelectsTypeScriptIndexer(t *testing.T) {
 }
 
 func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("scip-python is intentionally skipped on native Windows")
+	}
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname='demo'\n"), 0o600); err != nil {
 		t.Fatalf("write pyproject.toml: %v", err)
@@ -171,6 +176,33 @@ func TestGenerateSCIPIndex_SelectsPythonIndexer(t *testing.T) {
 	}
 	if filepath.Base(generated[0]) != "scip-python.scip" {
 		t.Fatalf("expected scip-python.scip output, got %q", generated[0])
+	}
+}
+
+func TestGenerateSCIPIndex_SkipsPythonIndexerOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only scip-python skip behavior")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname='demo'\n"), 0o600); err != nil {
+		t.Fatalf("write pyproject.toml: %v", err)
+	}
+
+	resetSCIPHooks := stubSCIPHooks(t, map[string]bool{"scip-python": true}, func(string, string, ...string) error {
+		t.Fatal("scip-python should be skipped on Windows")
+		return nil
+	})
+	defer resetSCIPHooks()
+
+	generated, err := generateSCIPIndexes(dir, filepath.Join(dir, ".tracescope", "scip"), map[parser.Language][]string{
+		parser.LangPython: {filepath.Join(dir, "app.py")},
+	}, filepath.Join(dir, "index.scip"))
+	if err != nil {
+		t.Fatalf("generateSCIPIndexes failed: %v", err)
+	}
+	if len(generated) != 0 {
+		t.Fatalf("expected no generated SCIP files on Windows, got %v", generated)
 	}
 }
 

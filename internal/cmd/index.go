@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/anurag/tracescope/internal/graph"
@@ -244,6 +245,12 @@ func generateSCIPIndexes(root, scipOutDir string, files map[parser.Language][]st
 	var generated []string
 	for _, candidate := range candidates {
 		if !candidate.enabled || !hasAnyMarker(root, candidate.markers) {
+			continue
+		}
+		if candidate.name == "scip-python" && runtime.GOOS == "windows" {
+			log.Warn().
+				Str("indexer", candidate.name).
+				Msg("skipping scip-python on Windows because the published package fails on native Windows path separators; use WSL/Linux CI for Python SCIP indexing")
 			continue
 		}
 		if _, err := scipLookPath(candidate.name); err != nil {
