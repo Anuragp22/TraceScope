@@ -617,6 +617,12 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 					confidence: EdgeConfidenceHeuristic,
 				},
 			}
+			if call.ReceiverPackage != "" {
+				qualKeys = append([]typedCandidate{{
+					key:        fileQualifier(call.ReceiverPackage) + "." + call.ReceiverType + "." + call.Name,
+					confidence: EdgeConfidenceExact,
+				}}, qualKeys...)
+			}
 			if fileImports, ok := importMap[fr.FilePath]; ok {
 				if binding, ok := fileImports[call.ReceiverType]; ok {
 					if targetNode, ok := nodeMap[binding.TargetFileID]; ok {

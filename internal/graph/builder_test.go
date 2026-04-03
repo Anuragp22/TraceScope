@@ -1,6 +1,8 @@
 package graph
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anurag/tracescope/internal/parser"
@@ -340,6 +342,82 @@ function main() {
 	}
 	if !foundUserRun {
 		t.Fatal("expected main -> User.run call edge")
+	}
+}
+
+func TestBuilder_ResolvesCompilerTypedTSFactoryReceiverAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	appPath := filepath.Join(dir, "app.ts")
+	servicePath := filepath.Join(dir, "service.ts")
+	otherServicePath := filepath.Join(dir, "other", "service.ts")
+
+	if err := os.MkdirAll(filepath.Dir(otherServicePath), 0o755); err != nil {
+		t.Fatalf("mkdir other dir: %v", err)
+	}
+	if err := os.WriteFile(servicePath, []byte(`
+export class Service {
+  run() {
+    return "real";
+  }
+}
+
+export function createService() {
+  return new Service();
+}
+`), 0o600); err != nil {
+		t.Fatalf("write service.ts: %v", err)
+	}
+	if err := os.WriteFile(otherServicePath, []byte(`
+export class Service {
+  run() {
+    return "wrong";
+  }
+}
+`), 0o600); err != nil {
+		t.Fatalf("write other/service.ts: %v", err)
+	}
+	if err := os.WriteFile(appPath, []byte(`
+import { createService } from "./service";
+
+export function main() {
+  const service = createService();
+  service.run();
+}
+`), 0o600); err != nil {
+		t.Fatalf("write app.ts: %v", err)
+	}
+
+	results, errs := parser.NewRegistry().ParseFiles(map[parser.Language][]string{
+		parser.LangTypeScript: {appPath, servicePath, otherServicePath},
+	})
+	if len(errs) > 0 {
+		t.Fatalf("ParseFiles returned errors: %v", errs)
+	}
+
+	gd := NewBuilder().Build(results)
+
+	foundExpected := false
+	for _, edge := range gd.Edges {
+		if edge.Type != EdgeCalls {
+			continue
+		}
+		src := findNode(gd, edge.Source)
+		tgt := findNode(gd, edge.Target)
+		if src == nil || tgt == nil || src.FilePath != appPath || src.Name != "main" || tgt.Name != "run" {
+			continue
+		}
+		if tgt.FilePath == otherServicePath {
+			t.Fatal("service.run() resolved to duplicate Service.run in the wrong file")
+		}
+		if tgt.FilePath == servicePath {
+			if edge.Confidence != EdgeConfidenceExact {
+				t.Fatalf("expected exact confidence for compiler-backed TS receiver call, got %q", edge.Confidence)
+			}
+			foundExpected = true
+		}
+	}
+	if !foundExpected {
+		t.Fatal("expected service.run() to resolve to service.ts Service.run")
 	}
 }
 

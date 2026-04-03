@@ -79,25 +79,25 @@ func (r *Registry) ParseFiles(filesByLang map[Language][]string) ([]*FileResult,
 			for j := range jobCh {
 				p := r.parsers[j.lang]
 				// Check file size — skip files > 10MB
-			stat, err := os.Stat(j.path)
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("stat %s: %w", j.path, err))
-				mu.Unlock()
-				continue
-			}
-			if stat.Size() > 10*1024*1024 {
-				log.Debug().Str("file", j.path).Int64("size", stat.Size()).Msg("skipping large file")
-				continue
-			}
+				stat, err := os.Stat(j.path)
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("stat %s: %w", j.path, err))
+					mu.Unlock()
+					continue
+				}
+				if stat.Size() > 10*1024*1024 {
+					log.Debug().Str("file", j.path).Int64("size", stat.Size()).Msg("skipping large file")
+					continue
+				}
 
-			source, err := os.ReadFile(j.path)
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("reading %s: %w", j.path, err))
-				mu.Unlock()
-				continue
-			}
+				source, err := os.ReadFile(j.path)
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, fmt.Errorf("reading %s: %w", j.path, err))
+					mu.Unlock()
+					continue
+				}
 				result, err := p.Parse(j.path, source)
 				if err != nil {
 					mu.Lock()
@@ -121,5 +121,6 @@ func (r *Registry) ParseFiles(filesByLang map[Language][]string) ([]*FileResult,
 	}
 
 	wg.Wait()
+	enrichTypeScriptSemantics(results)
 	return results, errs
 }
