@@ -37,9 +37,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	}
 
 	start := time.Now()
-	bold := color.New(color.Bold)
 	cyan := color.New(color.FgCyan, color.Bold)
-	dim := color.New(color.Faint)
 
 	cyan.Fprintf(os.Stderr, "TraceScope")
 	fmt.Fprintf(os.Stderr, " — indexing %s\n\n", absPath)
@@ -63,6 +61,27 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	outDir := filepath.Join(absPath, ".tracescope")
 	graphFile := filepath.Join(outDir, "graph.json")
 	cacheFile := filepath.Join(outDir, "parse_cache.json")
+	scipFile := filepath.Join(absPath, "index.scip")
+
+	if _, err := os.Stat(scipFile); err == nil {
+		fmt.Fprintf(os.Stderr, "  Found SCIP index: %s\n", scipFile)
+
+		graphData, err := graph.BuildFromSCIP(scipFile)
+		if err != nil {
+			return fmt.Errorf("loading SCIP index: %w", err)
+		}
+		graphData.RootPath = absPath
+
+		if err := os.MkdirAll(outDir, 0755); err != nil {
+			return fmt.Errorf("creating output directory: %w", err)
+		}
+		if err := storeGraph(graphFile, graphData); err != nil {
+			return err
+		}
+
+		printIndexStats(graphData, 0, 0, time.Since(start), graphFile)
+		return nil
+	}
 
 	store := graph.NewStore()
 	existingGraph, _ := store.Load(graphFile)
@@ -132,6 +151,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 	builder := graph.NewBuilder()
 	graphData := builder.Build(allResults)
 	graphData.RootPath = absPath
+	graphData.IndexSource = "parser"
 
 	// Step 5: Update parse cache
 	newCache := parser.NewParseCache()
@@ -151,25 +171,41 @@ func runIndex(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	nodeCount := len(graphData.Nodes)
-	edgeCount := len(graphData.Edges)
-	fmt.Fprintf(os.Stderr, "  Built graph: %d nodes, %d edges\n", nodeCount, edgeCount)
-
 	// Step 6: Save graph + cache
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
-	if err := store.Save(graphData, graphFile); err != nil {
-		return fmt.Errorf("saving graph: %w", err)
+	if err := storeGraph(graphFile, graphData); err != nil {
+		return err
 	}
 	if err := parser.SaveCache(newCache, cacheFile); err != nil {
 		log.Warn().Err(err).Msg("failed to save parse cache")
 	}
 
-	elapsed := time.Since(start)
+	printIndexStats(graphData, reParsed, cached, time.Since(start), graphFile)
+
+	return nil
+}
+
+func storeGraph(graphFile string, graphData *graph.GraphData) error {
+	store := graph.NewStore()
+	if err := store.Save(graphData, graphFile); err != nil {
+		return fmt.Errorf("saving graph: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "  Built graph: %d nodes, %d edges\n", len(graphData.Nodes), len(graphData.Edges))
+	return nil
+}
+
+func printIndexStats(graphData *graph.GraphData, reParsed, cached int, elapsed time.Duration, graphFile string) {
+	bold := color.New(color.Bold)
+	dim := color.New(color.Faint)
 
 	fmt.Fprintln(os.Stderr)
 	bold.Fprintf(os.Stderr, "  Stats:\n")
+
+	if graphData.IndexSource != "" {
+		fmt.Fprintf(os.Stderr, "    %-12s %s\n", "source:", graphData.IndexSource)
+	}
 
 	typeCounts := map[graph.NodeType]int{}
 	for _, n := range graphData.Nodes {
@@ -194,6 +230,4 @@ func runIndex(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "\n  Saved to %s\n", graphFile)
 	fmt.Fprintf(os.Stderr, "  Done in %s\n", elapsed.Round(time.Millisecond))
-
-	return nil
 }

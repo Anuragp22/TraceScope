@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestRegistry_ParseFiles_EnrichesTypeScriptFactoryReturnTypes(t *testing.T) {
+func TestEnrichTypeScriptSemantics_FactoryReturnTypes(t *testing.T) {
 	if !HasTypeScriptSemanticSupport() {
 		t.Skip("TypeScript compiler runtime not available")
 	}
@@ -47,6 +47,7 @@ export function main() {
 	if len(errs) > 0 {
 		t.Fatalf("ParseFiles returned errors: %v", errs)
 	}
+	enrichTypeScriptSemantics(results)
 
 	var appResult *FileResult
 	for _, result := range results {

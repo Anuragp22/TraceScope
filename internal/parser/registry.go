@@ -121,6 +121,5 @@ func (r *Registry) ParseFiles(filesByLang map[Language][]string) ([]*FileResult,
 	}
 
 	wg.Wait()
-	enrichTypeScriptSemantics(results)
 	return results, errs
 }
