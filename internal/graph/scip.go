@@ -314,6 +314,8 @@ func (b *scipGraphBuilder) nodeTypeForSymbol(symbol string) NodeType {
 	switch {
 	case strings.Contains(descriptor, "("):
 		return NodeFunction
+	case strings.Contains(descriptor, "#") && strings.HasSuffix(descriptor, "."):
+		return NodeFunction
 	case strings.HasSuffix(descriptor, "#") || strings.HasSuffix(descriptor, ":"):
 		return NodeClass
 	}
@@ -425,6 +427,12 @@ func scipParentDescriptor(descriptor string) string {
 		}
 		return receiver + "#"
 	case strings.Contains(descriptor, "#") && strings.Contains(descriptor, "("):
+		hash := strings.IndexByte(descriptor, '#')
+		if hash <= 0 {
+			return ""
+		}
+		return descriptor[:hash+1]
+	case strings.Contains(descriptor, "#") && strings.HasSuffix(descriptor, "."):
 		hash := strings.IndexByte(descriptor, '#')
 		if hash <= 0 {
 			return ""

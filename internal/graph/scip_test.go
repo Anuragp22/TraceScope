@@ -457,6 +457,51 @@ func TestBuildFromSCIP_InfersMethodParentWithoutSymbolInformation(t *testing.T) 
 	}
 }
 
+func TestBuildFromSCIP_MapsInterfaceMethodsWithoutParameterList(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "index.scip")
+	writeSCIPIndexFixture(t, indexPath, &scip.Index{
+		Documents: []*scip.Document{{
+			RelativePath: "parser.go",
+			Language:     "go",
+			Occurrences: []*scip.Occurrence{
+				{
+					Range:       []int32{0, 5, 19},
+					Symbol:      "scip-go gomod example.com/acme/pkg LanguageParser#",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{1, 1, 6},
+					Symbol:      "scip-go gomod example.com/acme/pkg LanguageParser#Parse.",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+				{
+					Range:       []int32{2, 1, 9},
+					Symbol:      "scip-go gomod example.com/acme/pkg LanguageParser#Language.",
+					SymbolRoles: int32(scip.SymbolRole_Definition),
+				},
+			},
+		}},
+	})
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	ifaceID := findNodeIDByNameAndFile(gd, "LanguageParser", "parser.go")
+	parseID := findNodeIDByNameAndFile(gd, "Parse", "parser.go")
+	langID := findNodeIDByNameAndFile(gd, "Language", "parser.go")
+	if ifaceID == "" || parseID == "" || langID == "" {
+		t.Fatalf("expected LanguageParser/Parse/Language nodes, got %+v", gd.Nodes)
+	}
+	if !hasEdge(gd, ifaceID, parseID, EdgeContains) {
+		t.Fatal("expected LanguageParser -> Parse CONTAINS edge")
+	}
+	if !hasEdge(gd, ifaceID, langID, EdgeContains) {
+		t.Fatal("expected LanguageParser -> Language CONTAINS edge")
+	}
+}
+
 func hasEdge(gd *GraphData, sourceID, targetID string, edgeType EdgeType) bool {
 	for _, edge := range gd.Edges {
 		if edge.Source == sourceID && edge.Target == targetID && edge.Type == edgeType {
