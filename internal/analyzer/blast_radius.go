@@ -193,7 +193,11 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 		if result.AffectedFunctions[i].Depth != result.AffectedFunctions[j].Depth {
 			return result.AffectedFunctions[i].Depth < result.AffectedFunctions[j].Depth
 		}
-		return result.AffectedFunctions[i].Node.Name < result.AffectedFunctions[j].Node.Name
+		if result.AffectedFunctions[i].Node.Name != result.AffectedFunctions[j].Node.Name {
+			return result.AffectedFunctions[i].Node.Name < result.AffectedFunctions[j].Node.Name
+		}
+		// Node.ID is unique — final tiebreaker for fully deterministic output.
+		return result.AffectedFunctions[i].Node.ID < result.AffectedFunctions[j].Node.ID
 	})
 
 	return result

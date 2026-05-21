@@ -103,7 +103,11 @@ func (r *Registry) ParseFiles(filesByLang map[Language][]string) ([]*FileResult,
 					mu.Lock()
 					errs = append(errs, fmt.Errorf("parsing %s: %w", j.path, err))
 					mu.Unlock()
-					continue
+					if result == nil {
+						continue // hard failure — no usable AST
+					}
+					// Partial parse (e.g. a syntax error mid-file): keep the
+					// recovered nodes rather than dropping the whole file.
 				}
 				// Compute content hash
 				h := sha256.Sum256(source)

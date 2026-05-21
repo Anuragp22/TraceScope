@@ -160,6 +160,13 @@ and extra node/edge signatures.
 
 ## GitHub Actions
 
+TraceScope dogfoods itself: every PR on this repository triggers a blast-radius
+analysis and posts a comment with the impact report. See
+[`.github/workflows/tracescope.yml`](.github/workflows/tracescope.yml) for the
+workflow, or open any pull request to see it in action.
+
+To add TraceScope to your own repository:
+
 ```yaml
 - name: Index codebase
   run: tracescope index .
@@ -178,6 +185,7 @@ Exit codes:
 | 0 | No risk or only low-risk impact |
 | 1 | High-risk impacted functions |
 | 2 | Medium-risk impacted functions |
+| 3 | TraceScope error (bad input, missing graph, etc.) |
 
 ## Configuration
 

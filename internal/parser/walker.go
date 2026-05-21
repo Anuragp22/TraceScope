@@ -46,13 +46,24 @@ var extensionToLanguage = map[string]Language{
 func WalkDirectory(root string) (map[Language][]string, error) {
 	result := make(map[Language][]string)
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	// WalkDir (not Walk) does not follow symlinks. The explicit symlink/
+	// irregular skip below additionally guards against Windows directory
+	// junctions, which filepath.Walk follows into infinite recursion (Go #17540).
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip files we can't read
+			return nil // skip entries we can't read
 		}
 
-		if info.IsDir() {
-			name := info.Name()
+		// Never descend into symlinks or reparse points (Windows junctions).
+		if d.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			name := d.Name()
 			if skipDirs[name] {
 				return filepath.SkipDir
 			}

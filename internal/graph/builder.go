@@ -156,6 +156,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	// Build class lookup by name (scoped by package for Go, by file for others)
 	classByPkgName := make(map[string]string)  // "pkg.ClassName" → classID
 	classByFileName := make(map[string]string) // "filePath:ClassName" → classID
+	classKindByID := make(map[string]string)   // classID → "struct"/"interface"/...
 	for _, fr := range results {
 		for _, cls := range fr.Classes {
 			classID := makeClassID(fr.FilePath, cls.Name)
@@ -163,6 +164,7 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				classByPkgName[fr.Package+"."+cls.Name] = classID
 			}
 			classByFileName[fr.FilePath+":"+cls.Name] = classID
+			classKindByID[classID] = cls.Kind
 		}
 	}
 
@@ -246,9 +248,12 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 					continue
 				}
 				if targetID != "" && targetID != classID {
+					// A non-interface type that lists an interface as a base
+					// implements it. interface-embeds-interface and
+					// struct-embeds-struct are both extension.
 					edgeType := EdgeExtends
-					if cls.Kind == "interface" || cls.Kind == "struct" {
-						edgeType = EdgeExtends
+					if cls.Kind != "interface" && classKindByID[targetID] == "interface" {
+						edgeType = EdgeImplements
 					}
 					gd.Edges = append(gd.Edges, Edge{
 						Source:     classID,
@@ -271,17 +276,23 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 	for _, fr := range results {
 		fileID := fileNodeByPath[fr.FilePath]
 		fileImportMap := make(map[string]importBinding)
+		seenImportEdge := make(map[string]bool) // targetFileID → already linked
 
 		for _, imp := range fr.Imports {
 			// Try to find the target file
 			targetFileID := b.resolveImport(fr, imp, fileNodeByPath, fileByDir, results)
 			if targetFileID != "" {
-				gd.Edges = append(gd.Edges, Edge{
-					Source:     fileID,
-					Target:     targetFileID,
-					Type:       EdgeImports,
-					Confidence: EdgeConfidenceExact,
-				})
+				// Multiple imports can resolve to the same file (e.g. two
+				// `from pkg import X/Y` lines). Emit only one IMPORTS edge.
+				if !seenImportEdge[targetFileID] {
+					seenImportEdge[targetFileID] = true
+					gd.Edges = append(gd.Edges, Edge{
+						Source:     fileID,
+						Target:     targetFileID,
+						Type:       EdgeImports,
+						Confidence: EdgeConfidenceExact,
+					})
+				}
 
 				// Build alias → target file mapping
 				alias := imp.Alias

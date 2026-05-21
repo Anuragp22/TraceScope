@@ -27,7 +27,7 @@ func TestComputeHotspots_Basic(t *testing.T) {
 		t.Fatal("expected hotspots")
 	}
 
-	// "hub" has 2 inbound, 1 outbound → coupling 2
+	// "hub" has 2 inbound, 1 outbound → coupling = in*2 + out = 5
 	// Should be first
 	if result.Hotspots[0].Node.Name != "hub" {
 		t.Errorf("expected 'hub' as top hotspot, got %q", result.Hotspots[0].Node.Name)
@@ -38,8 +38,8 @@ func TestComputeHotspots_Basic(t *testing.T) {
 	if result.Hotspots[0].OutboundCalls != 1 {
 		t.Errorf("expected 1 outbound call, got %d", result.Hotspots[0].OutboundCalls)
 	}
-	if result.Hotspots[0].CouplingScore != 2 {
-		t.Errorf("expected coupling score 2, got %d", result.Hotspots[0].CouplingScore)
+	if result.Hotspots[0].CouplingScore != 5 {
+		t.Errorf("expected coupling score 5, got %d", result.Hotspots[0].CouplingScore)
 	}
 }
 

@@ -99,9 +99,19 @@ func resolveFunction(graphData *graph.GraphData, query string) (*graph.Node, err
 		}
 	}
 
-	// If first match is qualified, it's specific enough
+	// If first match is qualified, it's specific enough — but only when the
+	// qualified name resolves to exactly one node. Two packages can share a
+	// short name, so a qualified query can still be ambiguous.
 	if matches[0].MatchType == "qualified" {
-		return matches[0].Node, nil
+		qualifiedCount := 0
+		for _, m := range matches {
+			if m.MatchType == "qualified" {
+				qualifiedCount++
+			}
+		}
+		if qualifiedCount == 1 {
+			return matches[0].Node, nil
+		}
 	}
 
 	// Ambiguous — show candidates (limit to 10)

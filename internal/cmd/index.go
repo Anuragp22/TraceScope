@@ -21,10 +21,12 @@ import (
 )
 
 var indexCmd = &cobra.Command{
-	Use:   "index [path]",
-	Short: "Index a codebase and build its dependency graph",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runIndex,
+	Use:           "index [path]",
+	Short:         "Index a codebase and build its dependency graph",
+	Args:          cobra.MaximumNArgs(1),
+	RunE:          runIndex,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 func init() {

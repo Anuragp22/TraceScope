@@ -163,7 +163,10 @@ func (p *GoParser) Parse(filePath string, source []byte) (*FileResult, error) {
 		return true
 	})
 
-	return result, nil
+	// err is non-nil when ParseFile recovered a partial AST from a file with
+	// syntax errors. Surface it so the caller can report it — the recovered
+	// nodes in result are still usable.
+	return result, err
 }
 
 // receiverTypeName extracts the type name from a method receiver expression,

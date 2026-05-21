@@ -27,21 +27,19 @@ func MapDiffToFunctions(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 		}
 	}
 
+	funcFileKeys := make([]string, 0, len(funcsByFile))
+	for k := range funcsByFile {
+		funcFileKeys = append(funcFileKeys, k)
+	}
+
 	var result []ChangedFunction
 	seen := make(map[string]bool) // deduplicate by NodeID
 
 	for _, cf := range changedFiles {
 		normDiffPath := normalizePath(cf.Path)
 
-		// Try to match the diff path to a known file using path-segment matching
-		var matchedPath string
-		for knownPath := range funcsByFile {
-			if knownPath == normDiffPath || pathSegmentSuffix(knownPath, normDiffPath) || pathSegmentSuffix(normDiffPath, knownPath) {
-				matchedPath = knownPath
-				break
-			}
-		}
-
+		// Deterministically pick the best-matching graph file for this diff path.
+		matchedPath := matchGraphPath(normDiffPath, funcFileKeys)
 		if matchedPath == "" {
 			continue
 		}
@@ -52,8 +50,9 @@ func MapDiffToFunctions(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 				continue
 			}
 
-			if cf.IsNew {
-				// New file — all functions are changed
+			if cf.IsNew || cf.IsDeleted {
+				// New file — every function is added. Deleted file — every
+				// function is removed, so its callers still need traversal.
 				seen[fn.ID] = true
 				result = append(result, ChangedFunction{
 					NodeID:   fn.ID,
@@ -90,17 +89,39 @@ func MapDiffToFileNodes(changedFiles []diff.ChangedFile, graphData *graph.GraphD
 		}
 	}
 
+	fileNodeKeys := make([]string, 0, len(fileNodes))
+	for k := range fileNodes {
+		fileNodeKeys = append(fileNodeKeys, k)
+	}
+
 	var result []string
 	for _, cf := range changedFiles {
 		normPath := normalizePath(cf.Path)
-		for knownPath, id := range fileNodes {
-			if knownPath == normPath || pathSegmentSuffix(knownPath, normPath) || pathSegmentSuffix(normPath, knownPath) {
-				result = append(result, id)
-				break
-			}
+		if matched := matchGraphPath(normPath, fileNodeKeys); matched != "" {
+			result = append(result, fileNodes[matched])
 		}
 	}
 	return result
+}
+
+// matchGraphPath picks the graph file path that best matches a diff path.
+// It prefers an exact match, then the longest path-segment-suffix match,
+// breaking remaining ties alphabetically so the result is deterministic
+// regardless of map iteration order.
+func matchGraphPath(diffPath string, candidates []string) string {
+	best := ""
+	for _, p := range candidates {
+		if p == diffPath {
+			return p
+		}
+		if !pathSegmentSuffix(p, diffPath) && !pathSegmentSuffix(diffPath, p) {
+			continue
+		}
+		if best == "" || len(p) > len(best) || (len(p) == len(best) && p < best) {
+			best = p
+		}
+	}
+	return best
 }
 
 // pathSegmentSuffix checks if path ends with suffix when compared by path segments.

@@ -12,10 +12,12 @@ import (
 )
 
 var scipValidateCmd = &cobra.Command{
-	Use:   "validate-scip [path]",
-	Short: "Compare SCIP graph output against parser fallback graph output",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runSCIPValidate,
+	Use:           "validate-scip [path]",
+	Short:         "Compare SCIP graph output against parser fallback graph output",
+	Args:          cobra.MaximumNArgs(1),
+	RunE:          runSCIPValidate,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 func init() {

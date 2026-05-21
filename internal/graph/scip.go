@@ -208,7 +208,15 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 		}
 	}
 
-	for symbol, nodeID := range b.symbolNodeByID {
+	// Iterate in a stable order so class→method CONTAINS edges are emitted
+	// deterministically (Go map iteration order is randomized).
+	symbols := make([]string, 0, len(b.symbolNodeByID))
+	for symbol := range b.symbolNodeByID {
+		symbols = append(symbols, symbol)
+	}
+	sort.Strings(symbols)
+	for _, symbol := range symbols {
+		nodeID := b.symbolNodeByID[symbol]
 		var parentSymbol string
 		if info := b.symbolInfoByID[symbol]; info != nil {
 			parentSymbol = info.GetEnclosingSymbol()
@@ -231,7 +239,15 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 }
 
 func (b *scipGraphBuilder) registerSymbolRelationships() {
-	for symbol, info := range b.symbolInfoByID {
+	// Iterate in a stable order so EXTENDS/IMPLEMENTS edges are emitted
+	// deterministically (Go map iteration order is randomized).
+	symbols := make([]string, 0, len(b.symbolInfoByID))
+	for symbol := range b.symbolInfoByID {
+		symbols = append(symbols, symbol)
+	}
+	sort.Strings(symbols)
+	for _, symbol := range symbols {
+		info := b.symbolInfoByID[symbol]
 		sourceID := b.symbolNodeByID[symbol]
 		source := b.nodeMap[sourceID]
 		if source == nil {
@@ -363,6 +379,13 @@ func (b *scipGraphBuilder) definitionScopes(doc *scip.Document) []scipDefinition
 			continue
 		}
 		startLine, endLine := scipOccurrenceLines(occ.GetRange())
+		// Prefer the enclosing range (the full definition body) when the indexer
+		// provides it — scip-typescript does, scip-go does not. Without it,
+		// startLine == endLine (the identifier only) and enclosingSCIPScopeID
+		// falls back to a nearest-preceding-definition heuristic.
+		if enclosing := occ.GetEnclosingRange(); len(enclosing) > 0 {
+			startLine, endLine = scipOccurrenceLines(enclosing)
+		}
 		scopes = append(scopes, scipDefinitionScope{startLine: startLine, endLine: endLine, nodeID: nodeID})
 	}
 	sort.Slice(scopes, func(i, j int) bool {
@@ -589,9 +612,16 @@ func enclosingSCIPScopeID(scopes []scipDefinitionScope, line int, targetID strin
 		if scope.nodeID == targetID {
 			continue
 		}
-		if line >= scope.startLine {
-			return scope.nodeID
+		if line < scope.startLine {
+			continue
 		}
+		// When a real multi-line body range is known (endLine > startLine), the
+		// reference must fall inside it. With identifier-only ranges
+		// (endLine == startLine) fall back to nearest-preceding-definition.
+		if scope.endLine > scope.startLine && line > scope.endLine {
+			continue
+		}
+		return scope.nodeID
 	}
 	return ""
 }

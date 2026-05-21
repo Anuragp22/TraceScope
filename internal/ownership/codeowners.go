@@ -124,22 +124,36 @@ func (c *Codeowners) SuggestReviewers(filePaths []string) []OwnerSummary {
 	return result
 }
 
-// matchPattern matches a CODEOWNERS glob pattern against a file path.
+// matchPattern matches a CODEOWNERS glob pattern against a repo-relative file path.
 func matchPattern(pattern, filePath string) bool {
 	pattern = filepath.ToSlash(pattern)
+	filePath = filepath.ToSlash(filePath)
 
-	// If pattern starts with /, it's anchored to root
-	if strings.HasPrefix(pattern, "/") {
-		pattern = pattern[1:]
+	// A leading slash anchors the pattern to the repo root; our file paths are
+	// already repo-relative, so the slash is only a marker — strip it.
+	anchored := strings.HasPrefix(pattern, "/")
+	pattern = strings.TrimPrefix(pattern, "/")
+	if pattern == "" {
+		return false
 	}
 
-	// Use doublestar for full glob support
-	if matched, _ := doublestar.Match(pattern, filePath); matched {
-		return true
+	// Build the candidate globs. A trailing slash means "this directory and
+	// everything under it"; a bare path may name either a file or a directory.
+	var globs []string
+	if strings.HasSuffix(pattern, "/") {
+		globs = []string{pattern + "**"}
+	} else {
+		globs = []string{pattern, pattern + "/**"}
+	}
+	for _, g := range globs {
+		if matched, _ := doublestar.Match(g, filePath); matched {
+			return true
+		}
 	}
 
-	// If pattern has no /, it matches anywhere in the path (CODEOWNERS semantics)
-	if !strings.Contains(pattern, "/") && !strings.Contains(pattern, "**") {
+	// A pattern with no slash matches that name anywhere in the path
+	// (CODEOWNERS semantics for un-anchored patterns).
+	if !anchored && !strings.Contains(pattern, "/") && !strings.Contains(pattern, "**") {
 		if matched, _ := doublestar.Match(pattern, filepath.Base(filePath)); matched {
 			return true
 		}

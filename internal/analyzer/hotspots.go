@@ -71,7 +71,10 @@ func ComputeHotspots(graphData *graph.GraphData, opts HotspotsOptions) *Hotspots
 			continue
 		}
 
-		coupling := in * out
+		// Weight inbound callers (the blast radius if this function changes)
+		// above outbound calls. A plain in*out product would score a heavily
+		// called pure sink (out == 0) as zero and bury it in the ranking.
+		coupling := in*2 + out
 		risk := classifyHotspotRisk(in)
 
 		hotspots = append(hotspots, HotspotFunction{
