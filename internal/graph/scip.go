@@ -170,6 +170,14 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 				continue
 			}
 			startLine, endLine := scipOccurrenceLines(occ.GetRange())
+			// scip-go (>= v0.2.1) and scip-typescript provide the full
+			// definition body via the enclosing range; prefer its end line so
+			// a body-only diff change still overlaps the function node.
+			if enclosing := occ.GetEnclosingRange(); len(enclosing) > 0 {
+				if _, enclosingEnd := scipOccurrenceLines(enclosing); enclosingEnd > endLine {
+					endLine = enclosingEnd
+				}
+			}
 			nodeType := b.nodeTypeForSymbol(symbol, filePath, startLine)
 			if nodeType == "" {
 				continue

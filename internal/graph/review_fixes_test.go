@@ -94,6 +94,11 @@ func TestBuildFromSCIP_ScopeAttributionRespectsEnclosingRange(t *testing.T) {
 		t.Fatalf("expected alpha/helper/mod.ts nodes, got %+v", gd.Nodes)
 	}
 
+	if alpha.EndLine != 4 {
+		t.Errorf("alpha node EndLine = %d, want 4 — registerSymbolDefinitions must "+
+			"adopt the enclosing range as the definition's end line", alpha.EndLine)
+	}
+
 	if hasEdge(gd, alpha.ID, helper.ID, EdgeCalls) {
 		t.Error("file-scope reference was wrongly attributed to alpha (endLine ignored)")
 	}
