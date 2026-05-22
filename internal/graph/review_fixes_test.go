@@ -263,3 +263,104 @@ func TestComputeBlastRadius_DoesNotFloodThroughClassNode(t *testing.T) {
 		}
 	}
 }
+
+// SCIP function bounds: scip-go emits identifier-only definition ranges, so a
+// Go function node would have EndLine == StartLine. That breaks two things — a
+// body-only diff change would not overlap the node, and a file-scope reference
+// past the function would be misattributed to it. The builder must widen Go
+// function nodes to their real body end via the native Go parser.
+func TestBuildFromSCIP_RefinesGoFunctionBounds(t *testing.T) {
+	dir := t.TempDir()
+
+	// Helper spans lines 3-5, Target spans lines 7-9. The reference on line 11
+	// (`var Sink = Helper()`) is at file scope — past the end of Target.
+	src := "package sample\n" + // 1
+		"\n" + // 2
+		"func Helper() int {\n" + // 3
+		"\treturn 42\n" + // 4
+		"}\n" + // 5
+		"\n" + // 6
+		"func Target() int {\n" + // 7
+		"\treturn Helper()\n" + // 8
+		"}\n" + // 9
+		"\n" + // 10
+		"var Sink = Helper()\n" // 11
+	if err := os.WriteFile(filepath.Join(dir, "sample.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	helperSym := "scip-go gomod example.com/sample pkg Helper()."
+	targetSym := "scip-go gomod example.com/sample pkg Target()."
+	def := func(line int32, sym string) *scip.Occurrence {
+		return &scip.Occurrence{Range: []int32{line, 5, 11}, Symbol: sym, SymbolRoles: int32(scip.SymbolRole_Definition)}
+	}
+	ref := func(line, col int32, sym string) *scip.Occurrence {
+		return &scip.Occurrence{Range: []int32{line, col, col + 6}, Symbol: sym}
+	}
+	index := &scip.Index{
+		Documents: []*scip.Document{
+			{
+				RelativePath: "sample.go",
+				Language:     "go",
+				Occurrences: []*scip.Occurrence{
+					def(2, helperSym),      // Helper definition, line 3
+					def(6, targetSym),      // Target definition, line 7
+					ref(7, 8, helperSym),   // Helper() call inside Target's body, line 8
+					ref(10, 11, helperSym), // Helper() at file scope, line 11
+				},
+				Symbols: []*scip.SymbolInformation{
+					{Symbol: helperSym, Kind: scip.SymbolInformation_Function, DisplayName: "Helper"},
+					{Symbol: targetSym, Kind: scip.SymbolInformation_Function, DisplayName: "Target"},
+				},
+			},
+		},
+	}
+
+	// The index must sit next to the source so the builder can load it.
+	indexPath := filepath.Join(dir, "index.scip")
+	raw, err := proto.Marshal(index)
+	if err != nil {
+		t.Fatalf("marshal scip index: %v", err)
+	}
+	if err := os.WriteFile(indexPath, raw, 0o600); err != nil {
+		t.Fatalf("write scip index: %v", err)
+	}
+
+	gd, err := BuildFromSCIP(indexPath)
+	if err != nil {
+		t.Fatalf("BuildFromSCIP failed: %v", err)
+	}
+
+	var target, helper, file *Node
+	for i := range gd.Nodes {
+		switch n := &gd.Nodes[i]; {
+		case n.Name == "Target" && n.Type == NodeFunction:
+			target = n
+		case n.Name == "Helper" && n.Type == NodeFunction:
+			helper = n
+		case n.Type == NodeFile && n.FilePath == "sample.go":
+			file = n
+		}
+	}
+	if target == nil || helper == nil || file == nil {
+		t.Fatalf("expected Target/Helper/file nodes, got %+v", gd.Nodes)
+	}
+
+	// (1) End line widened to the real closing brace.
+	if target.EndLine != 9 {
+		t.Errorf("Target EndLine = %d, want 9 (closing brace) — Go function bounds "+
+			"were not refined from the native parser", target.EndLine)
+	}
+
+	// (2) The in-body call is attributed to Target.
+	if !hasEdge(gd, target.ID, helper.ID, EdgeCalls) {
+		t.Error("the Helper() call inside Target's body should produce Target --CALLS--> Helper")
+	}
+
+	// (3) The file-scope reference past Target's body must be attributed to the
+	// file, not misattributed to the nearest preceding function.
+	if !hasEdge(gd, file.ID, helper.ID, EdgeCalls) {
+		t.Error("the file-scope Helper() reference should be attributed to the file node, " +
+			"not to Target (refined bounds let enclosingSCIPScopeID reject it)")
+	}
+}

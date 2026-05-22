@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anurag/tracescope/internal/parser"
 	scip "github.com/scip-code/scip/bindings/go/scip"
 	"google.golang.org/protobuf/proto"
 )
@@ -52,6 +53,7 @@ func BuildFromSCIPFiles(indexPaths []string) (*GraphData, error) {
 	builder.collectSymbolInfo(documents, externalSymbols)
 	builder.registerDocuments(documents)
 	builder.registerSymbolDefinitions(documents)
+	builder.refineGoFunctionBounds()
 	builder.registerSymbolRelationships()
 	builder.registerReferenceEdges(documents)
 	builder.flushNodes()
@@ -238,6 +240,44 @@ func (b *scipGraphBuilder) registerSymbolDefinitions(documents []*scip.Document)
 	}
 }
 
+// refineGoFunctionBounds widens Go function nodes to their real body end line.
+// scip-go emits identifier-only definition ranges (EndLine == StartLine), which
+// would let a body-only diff change miss the function and a file-scope
+// reference past the function be misattributed to it. The native Go parser
+// derives exact body bounds from go/ast, so re-parse each Go source file and
+// adopt those end lines.
+func (b *scipGraphBuilder) refineGoFunctionBounds() {
+	funcsByFile := map[string][]*Node{}
+	for _, node := range b.nodeMap {
+		if node.Type == NodeFunction && strings.HasSuffix(strings.ToLower(node.FilePath), ".go") {
+			funcsByFile[node.FilePath] = append(funcsByFile[node.FilePath], node)
+		}
+	}
+
+	goParser := parser.NewGoParser()
+	for filePath, funcs := range funcsByFile {
+		lines := b.sourceLinesByPath[canonicalPath(filePath)]
+		if len(lines) == 0 {
+			continue
+		}
+		result, _ := goParser.Parse(filePath, []byte(strings.Join(lines, "\n")))
+		if result == nil {
+			continue
+		}
+		endByStartLine := make(map[int]int, len(result.Functions))
+		for _, fn := range result.Functions {
+			if fn.EndLine > endByStartLine[fn.StartLine] {
+				endByStartLine[fn.StartLine] = fn.EndLine
+			}
+		}
+		for _, node := range funcs {
+			if end, ok := endByStartLine[node.StartLine]; ok && end > node.EndLine {
+				node.EndLine = end
+			}
+		}
+	}
+}
+
 func (b *scipGraphBuilder) registerSymbolRelationships() {
 	// Iterate in a stable order so EXTENDS/IMPLEMENTS edges are emitted
 	// deterministically (Go map iteration order is randomized).
@@ -385,6 +425,11 @@ func (b *scipGraphBuilder) definitionScopes(doc *scip.Document) []scipDefinition
 		// falls back to a nearest-preceding-definition heuristic.
 		if enclosing := occ.GetEnclosingRange(); len(enclosing) > 0 {
 			startLine, endLine = scipOccurrenceLines(enclosing)
+		}
+		// A refined node range (Go function bounds derived from the native
+		// parser) is more accurate than an identifier-only occurrence range.
+		if node.EndLine > endLine {
+			startLine, endLine = node.StartLine, node.EndLine
 		}
 		scopes = append(scopes, scipDefinitionScope{startLine: startLine, endLine: endLine, nodeID: nodeID})
 	}
