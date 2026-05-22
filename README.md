@@ -1,6 +1,6 @@
 # TraceScope
 
-A SCIP-backed PR blast-radius analyzer for code review.
+A SCIP-backed PR blast-radius analyzer for Go code review.
 
 TraceScope turns a diff into a ranked impact report:
 `changed function -> dependency path -> affected code -> risk -> suggested reviewer`.
@@ -58,8 +58,8 @@ flowchart LR
 
 ## Features
 
-- **SCIP-first indexing** with `scip-go` and `scip-typescript`, plus parser fallback
-- **Multi-language graph model** for files, functions, classes, imports, calls, and inheritance
+- **SCIP-first indexing** for Go via `scip-go`, with a tree-sitter parser fallback
+- **Dependency graph model** of files, functions, classes, imports, calls, and inheritance
 - **Blast-radius analysis** from changed functions to downstream impacted functions
 - **Risk ranking** based on call depth, caller fan-in, exports, and propagation
 - **Why-path explanations** for how a changed symbol reaches an affected symbol
@@ -68,22 +68,31 @@ flowchart LR
 - **CI/GitHub output** through terminal, JSON, exit codes, and PR comments
 - **Optional HTML graph report** for visual exploration
 
+## Language Support
+
+TraceScope targets **Go**. The Go path is the tested, reliable one — `scip-go` provides
+function-body ranges and accurate cross-file resolution, validated on real repositories.
+
+TypeScript and Python indexing exist but are **experimental**: symbol coverage is
+incomplete (many functions lack body ranges) and diff-to-function mapping is unreliable,
+so blast-radius results on those languages should not be trusted yet.
+
 ## Installation
 
 ### Prerequisites
 
 - Go 1.22+
 - GCC for tree-sitter fallback parsing
-- Optional SCIP indexers for higher-quality symbol resolution
+- `scip-go` for high-quality Go symbol resolution:
 
 ```bash
-go install github.com/sourcegraph/scip-go/cmd/scip-go@latest
-npm install -g @sourcegraph/scip-typescript
-npm install -g @sourcegraph/scip-python
+go install github.com/scip-code/scip-go/cmd/scip-go@latest
 ```
 
-**Windows note:** `scip-python` currently fails on native Windows in the published package,
-so TraceScope skips it there. Use WSL/Linux CI if Python SCIP indexing matters.
+The experimental TypeScript and Python indexers can also be installed
+(`npm install -g @sourcegraph/scip-typescript @sourcegraph/scip-python`), but see
+[Language Support](#language-support) first. `scip-python` fails on native Windows in
+the published package, so TraceScope skips it there.
 
 ### Build
 
@@ -228,7 +237,7 @@ docs/                    Benchmarks and supporting notes
 
 - TraceScope is a static-analysis prototype for PR impact analysis, not a full compiler or a
   replacement for an LLM reviewer like CodeRabbit
-- Static analysis is still imperfect for highly dynamic JavaScript/Python patterns
+- Go is the supported, tested language; TypeScript and Python indexing are experimental and not yet reliable for real use
 - SCIP and parser fallback graphs do not match 1:1 because SCIP carries richer semantic edges
 - `scip-python` is skipped on native Windows because of an upstream package issue
 - The dashboard is demo-only; the main product surface is the PR blast-radius comment
