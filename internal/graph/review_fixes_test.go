@@ -224,3 +224,42 @@ func TestBuilder_DeduplicatesImportEdges(t *testing.T) {
 		t.Errorf("expected exactly 1 IMPORTS edge after dedup, got %d", imports)
 	}
 }
+
+// Blast-radius flood: the SCIP indexer emits CALLS edges from a function to
+// the *type* it references (e.g. a `*Context` parameter). The reverse BFS
+// must not follow those edges — otherwise reaching a class node via its
+// changed member turns that class into a hub that floods the blast radius
+// with every type user. A real call always targets a function.
+func TestComputeBlastRadius_DoesNotFloodThroughClassNode(t *testing.T) {
+	gd := &GraphData{
+		Nodes: []Node{
+			{ID: "widget", Type: NodeClass, Name: "Widget"},
+			{ID: "render", Type: NodeFunction, Name: "Render"},
+			{ID: "realCaller", Type: NodeFunction, Name: "RealCaller"},
+			{ID: "typeUserA", Type: NodeFunction, Name: "TypeUserA"},
+			{ID: "typeUserB", Type: NodeFunction, Name: "TypeUserB"},
+		},
+		Edges: []Edge{
+			// Render is a method of Widget — Widget is its container.
+			{Source: "widget", Target: "render", Type: EdgeContains},
+			// A genuine caller of the changed function.
+			{Source: "realCaller", Target: "render", Type: EdgeCalls},
+			// These only reference the Widget *type* — the indexer models that
+			// as a CALLS edge into the class node. They do not call Render.
+			{Source: "typeUserA", Target: "widget", Type: EdgeCalls},
+			{Source: "typeUserB", Target: "widget", Type: EdgeCalls},
+		},
+	}
+
+	br := ComputeBlastRadius(gd, []string{"render"}, 5)
+
+	if _, ok := br.AffectedNodes["realCaller"]; !ok {
+		t.Error("RealCaller genuinely calls Render — it must be in the blast radius")
+	}
+	for _, id := range []string{"typeUserA", "typeUserB"} {
+		if _, ok := br.AffectedNodes[id]; ok {
+			t.Errorf("%s only references the Widget type — it must NOT be in the blast "+
+				"radius (the class node must not act as a traversal hub)", id)
+		}
+	}
+}

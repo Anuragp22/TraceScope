@@ -46,8 +46,15 @@ func ComputeBlastRadius(graphData *GraphData, seedNodeIDs []string, maxDepth int
 		}
 		switch edge.Type {
 		case EdgeCalls:
-			// A calls B → if B changes, A is affected
-			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], reverseEdge{source: edge.Source, edgeType: edge.Type, confidence: confidence})
+			// A calls B → if B changes, A is affected. Only follow CALLS edges
+			// into function nodes: the SCIP indexer also emits a CALLS edge
+			// from a function to the *type* it references (e.g. a `*Context`
+			// parameter). Treating those as call-dependencies turns the class
+			// node into a hub that floods the blast radius with every type
+			// user — a real call always targets a function.
+			if tgt, ok := nodeMap[edge.Target]; ok && tgt.Type == NodeFunction {
+				reverseAdj[edge.Target] = append(reverseAdj[edge.Target], reverseEdge{source: edge.Source, edgeType: edge.Type, confidence: confidence})
+			}
 		case EdgeContains:
 			// File contains Func → if Func changes, File is affected
 			reverseAdj[edge.Target] = append(reverseAdj[edge.Target], reverseEdge{source: edge.Source, edgeType: edge.Type, confidence: confidence})
