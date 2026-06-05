@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +17,6 @@ import (
 	"github.com/anurag/tracescope/internal/graph"
 	"github.com/anurag/tracescope/internal/ownership"
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
 	"github.com/rs/zerolog/log"
 )
@@ -75,7 +73,6 @@ func (s *Server) Handler() http.Handler {
 	r.HandleFunc("/api/why", s.handleWhy).Methods("GET")
 	r.HandleFunc("/api/stats", s.handleStats).Methods("GET")
 	r.HandleFunc("/api/reload", s.handleReload).Methods("POST")
-	r.HandleFunc("/api/ws", s.handleWebSocket)
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3001"},
@@ -115,8 +112,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, map[string]interface{}{
-		"total_nodes": len(s.graphData.Nodes),
-		"total_edges": len(s.graphData.Edges),
+		"total_nodes": len(graphData.Nodes),
+		"total_edges": len(graphData.Edges),
 		"node_types":  nodeTypes,
 		"edge_types":  edgeTypes,
 		"languages":   languages,
@@ -240,37 +237,6 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// WS /api/ws — WebSocket for streaming updates
-var upgrader = websocket.Upgrader{
-	CheckOrigin: websocketOriginAllowed,
-}
-
-func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Error().Err(err).Msg("websocket upgrade failed")
-		return
-	}
-	defer conn.Close()
-
-	// Send initial stats
-	graphData := s.graphSnapshot()
-	msg := map[string]interface{}{
-		"type":  "connected",
-		"nodes": len(graphData.Nodes),
-		"edges": len(graphData.Edges),
-	}
-	conn.WriteJSON(msg)
-
-	// Keep connection alive, read messages
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-	}
-}
-
 // GET /api/analyze/branches — list git branches
 func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
 	out, err := exec.Command("git", "-C", s.repoRoot, "branch", "--format=%(refname:short)").Output()
@@ -392,25 +358,6 @@ func (s *Server) replaceGraph(graphData *graph.GraphData) {
 	s.graphData = graphData
 }
 
-func websocketOriginAllowed(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-
-	parsed, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-
-	switch parsed.Host {
-	case "localhost:3000", "localhost:3001", "127.0.0.1:3000", "127.0.0.1:3001":
-		return true
-	default:
-		return false
-	}
-}
-
 // ListenAndServe starts the HTTP server.
 func ListenAndServe(cfg Config) error {
 	graphFile := cfg.GraphFile
@@ -441,8 +388,7 @@ func ListenAndServe(cfg Config) error {
 	fmt.Fprintf(os.Stderr, "    GET  /api/hotspots   Top coupled functions\n")
 	fmt.Fprintf(os.Stderr, "    POST /api/analyze    Blast radius from diff\n")
 	fmt.Fprintf(os.Stderr, "    GET  /api/why        Call path between functions\n")
-	fmt.Fprintf(os.Stderr, "    POST /api/reload     Reload graph from disk\n")
-	fmt.Fprintf(os.Stderr, "    WS   /api/ws         WebSocket connection\n\n")
+	fmt.Fprintf(os.Stderr, "    POST /api/reload     Reload graph from disk\n\n")
 
 	return http.ListenAndServe(addr, srv.Handler())
 }

@@ -4,12 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
 	"github.com/anurag/tracescope/internal/graph"
-	"github.com/gorilla/websocket"
 )
 
 func TestHandleReloadUpdatesGraph(t *testing.T) {
@@ -47,29 +45,6 @@ func TestHandleReloadUpdatesGraph(t *testing.T) {
 	reloaded := srv.graphSnapshot()
 	if len(reloaded.Nodes) != 2 {
 		t.Fatalf("expected 2 nodes after reload, got %d", len(reloaded.Nodes))
-	}
-}
-
-func TestWebSocketRejectsDisallowedOrigin(t *testing.T) {
-	graphFile := filepath.Join(t.TempDir(), "graph.json")
-	if err := graph.NewStore().Save(&graph.GraphData{}, graphFile); err != nil {
-		t.Fatalf("save graph: %v", err)
-	}
-
-	srv, err := New(Config{GraphFile: graphFile, RepoRoot: t.TempDir()})
-	if err != nil {
-		t.Fatalf("new server: %v", err)
-	}
-
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/ws"
-	_, _, err = websocket.DefaultDialer.Dial(wsURL, http.Header{
-		"Origin": []string{"https://evil.example"},
-	})
-	if err == nil {
-		t.Fatal("expected websocket dial to fail for disallowed origin")
 	}
 }
 

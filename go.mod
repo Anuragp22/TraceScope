@@ -6,7 +6,6 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/fatih/color v1.18.0
 	github.com/gorilla/mux v1.8.1
-	github.com/gorilla/websocket v1.5.3
 	github.com/rs/cors v1.11.1
 	github.com/rs/zerolog v1.32.0
 	github.com/scip-code/scip/bindings/go/scip v0.7.0
