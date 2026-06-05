@@ -5,7 +5,7 @@ import (
 	"github.com/anurag/tracescope/internal/diff"
 )
 
-// OwnershipInfo holds combined git blame and CODEOWNERS data.
+// OwnershipInfo holds combined git-log (last-author) and CODEOWNERS data.
 type OwnershipInfo struct {
 	FileAuthors        map[string]*FileAuthorInfo `json:"file_authors"`
 	SuggestedReviewers []OwnerSummary             `json:"suggested_reviewers,omitempty"`
@@ -40,18 +40,18 @@ func ResolveOwnership(repoRoot string, affectedFunctions []analyzer.AffectedFunc
 	co, err := LoadCodeowners(repoRoot)
 	if err == nil && co != nil {
 		codeownersFound = true
-		// Only suggest reviewers for affected files (not just changed)
-		affectedPaths := make([]string, 0, len(affectedFunctions))
+		// Suggest reviewers for both the affected files (downstream impact)
+		// and the changed files themselves.
+		reviewPaths := make([]string, 0, len(affectedFunctions)+len(changedFiles))
 		for _, af := range affectedFunctions {
 			if af.Node != nil {
-				affectedPaths = append(affectedPaths, af.Node.FilePath)
+				reviewPaths = append(reviewPaths, af.Node.FilePath)
 			}
 		}
-		// Include changed files too
 		for _, cf := range changedFiles {
-			affectedPaths = append(affectedPaths, cf.Path)
+			reviewPaths = append(reviewPaths, cf.Path)
 		}
-		reviewers = co.SuggestReviewers(affectedPaths)
+		reviewers = co.SuggestReviewers(reviewPaths)
 	}
 
 	return &OwnershipInfo{

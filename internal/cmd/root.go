@@ -25,16 +25,17 @@ var rootCmd = &cobra.Command{
 		}
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-		// Load project config
+		// Load project config. config.Load always returns a usable config
+		// (the defaults) even when it also returns an error, so adopt the
+		// returned value unconditionally — a malformed config should degrade
+		// to defaults, not to the zero-value Config.
 		cwd, _ := os.Getwd()
 		loaded, path, err := config.Load(cwd)
+		cfg = loaded
 		if err != nil {
-			log.Warn().Err(err).Str("path", path).Msg("failed to load config")
-		} else {
-			cfg = loaded
-			if path != "" {
-				log.Debug().Str("path", path).Msg("loaded config")
-			}
+			log.Warn().Err(err).Str("path", path).Msg("failed to load config; using defaults")
+		} else if path != "" {
+			log.Debug().Str("path", path).Msg("loaded config")
 		}
 	},
 }

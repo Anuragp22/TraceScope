@@ -81,7 +81,7 @@ so blast-radius results on those languages should not be trusted yet.
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+ (required by the `scip-code/scip` bindings; see `go.mod`)
 - GCC for tree-sitter fallback parsing
 - `scip-go` for high-quality Go symbol resolution:
 

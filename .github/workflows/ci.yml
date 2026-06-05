@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25"
 
       - uses: actions/setup-node@v4
         with:
@@ -25,7 +25,7 @@ jobs:
 
       - name: Install SCIP indexers
         run: |
-          go install github.com/sourcegraph/scip-go/cmd/scip-go@v0.1.26
+          go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.6
           npm install -g @sourcegraph/scip-typescript@0.4.0
 
       - name: Build
@@ -55,7 +55,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25"
 
       - name: Install GCC
         run: sudo apt-get update && sudo apt-get install -y gcc
