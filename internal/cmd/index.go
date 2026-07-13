@@ -505,6 +505,13 @@ func hasAnyMarker(root string, markers []string) bool {
 }
 
 func storeGraph(graphFile string, graphData *graph.GraphData) error {
+	// Bind the graph to the revision it was built from. Best-effort: a non-git
+	// directory simply leaves these empty.
+	if graphData.RootPath != "" {
+		graphData.Commit = gitHead(graphData.RootPath)
+		graphData.RepoRemote = gitOriginRemote(graphData.RootPath)
+	}
+
 	store := graph.NewStore()
 	if err := store.Save(graphData, graphFile); err != nil {
 		return fmt.Errorf("saving graph: %w", err)

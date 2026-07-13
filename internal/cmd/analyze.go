@@ -113,6 +113,17 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading graph (run 'tracescope index' first): %w", err)
 	}
 
+	// Warn if the graph was indexed at a different revision than the current
+	// HEAD. A stale graph drifts line numbers and silently mis-maps the diff.
+	if graphData.Commit != "" {
+		if head := gitHead("."); head != "" && head != graphData.Commit {
+			log.Warn().
+				Str("graph_commit", shortSHA(graphData.Commit)).
+				Str("head", shortSHA(head)).
+				Msg("graph was indexed at a different commit than HEAD; re-run 'tracescope index' for accurate line mapping")
+		}
+	}
+
 	// Run blast radius analysis
 	scorer := &analyzer.RiskScorer{
 		HighCallers:         cfg.Risk.HighCallers,

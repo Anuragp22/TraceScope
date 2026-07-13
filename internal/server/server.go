@@ -73,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	r.HandleFunc("/api/analyze", s.handleAnalyze).Methods("POST")
 	r.HandleFunc("/api/why", s.handleWhy).Methods("GET")
 	r.HandleFunc("/api/stats", s.handleStats).Methods("GET")
+	r.HandleFunc("/api/repo", s.handleRepo).Methods("GET")
 	r.HandleFunc("/api/reload", s.handleReload).Methods("POST")
 
 	c := cors.New(cors.Options{
@@ -93,6 +94,23 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		Edges []graph.Edge `json:"edges"`
 	}
 	writeJSON(w, response{Nodes: graphData.Nodes, Edges: graphData.Edges})
+}
+
+// GET /api/repo — identifies the repo and revision the served graph was built
+// from, so the dashboard can scope PR analysis to the same codebase rather than
+// analyzing an unrelated repo's diff against this graph.
+func (s *Server) handleRepo(w http.ResponseWriter, r *http.Request) {
+	graphData := s.graphSnapshot()
+	type response struct {
+		Remote string `json:"remote"`
+		Commit string `json:"commit"`
+		Root   string `json:"root_path"`
+	}
+	writeJSON(w, response{
+		Remote: graphData.RepoRemote,
+		Commit: graphData.Commit,
+		Root:   graphData.RootPath,
+	})
 }
 
 // GET /api/stats — returns graph statistics
