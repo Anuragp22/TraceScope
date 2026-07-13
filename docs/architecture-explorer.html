@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>TraceScope — Architecture Explorer</title>
+</head>
+<body>
+<style>
+  :root {
+    color-scheme: dark;
+    /* Linear surface ladder */
+    --canvas: #010102;
+    --surface-1: #0f1011;
+    --surface-2: #141516;
+    --surface-3: #18191a;
+    --hairline: #23252a;
+    --hairline-strong: #34343a;
+    --hairline-tertiary: #3e3e44;
+    /* ink */
+    --ink: #f7f8f8;
+    --ink-muted: #d0d6e0;
+    --ink-subtle: #8a8f98;
+    --ink-tertiary: #62666d;
+    /* Linear lavender — the single chromatic accent */
+    --accent: #5e6ad2;
+    --accent-hover: #828fff;
+    --accent-focus: #5e69d1;
+    --accent-ink: #ffffff;
+    --accent-dim: rgba(94, 106, 210, 0.14);
+    --accent-ring: rgba(94, 106, 210, 0.5);
+    /* in-product semantic tags (Linear priority-palette, muted for dark) */
+    --heuristic: #8b84b0;
+    --heuristic-dim: rgba(139, 132, 176, 0.14);
+    --high: #d1566a;
+    --med: #c69544;
+    --low: #3fa259;
+    --high-dim: rgba(209, 86, 106, 0.13);
+    --med-dim: rgba(198, 149, 68, 0.13);
+    --low-dim: rgba(63, 162, 89, 0.13);
+    /* type */
+    --sans: "Inter", "SF Pro Display", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "Cascadia Code", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: -0.05px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+  ::selection { background: var(--accent-dim); }
+
+  /* ---- Header ---- */
+  header {
+    border-bottom: 1px solid var(--hairline);
+    background: var(--canvas);
+    position: sticky; top: 0; z-index: 40;
+  }
+  .head-inner { display: flex; align-items: center; gap: 24px; padding: 0 32px; max-width: 1280px; margin: 0 auto; min-height: 56px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; padding: 10px 0; }
+  .logo {
+    font-family: var(--sans); font-weight: 600; font-size: 18px; letter-spacing: -0.4px;
+    color: var(--ink);
+  }
+  .logo b { color: var(--accent); font-weight: 600; }
+  .tag { font-family: var(--mono); font-size: 12px; color: var(--ink-subtle); letter-spacing: 0; }
+
+  /* segmented view control — Linear pricing-tab pattern (surface lift, not accent fill) */
+  nav.views { display: flex; gap: 2px; }
+  nav.views button {
+    font-family: var(--sans); font-size: 14px; font-weight: 500;
+    color: var(--ink-subtle); background: transparent; border: 1px solid transparent; cursor: pointer;
+    padding: 6px 13px; border-radius: 9999px; transition: color .15s, background .15s, border-color .15s;
+    display: flex; align-items: center; gap: 7px; white-space: nowrap;
+  }
+  nav.views button .k { font-family: var(--mono); font-size: 11px; color: var(--ink-tertiary); }
+  nav.views button:hover { color: var(--ink); }
+  nav.views button[aria-selected="true"] { background: var(--surface-2); color: var(--ink); border-color: var(--hairline-strong); }
+  nav.views button[aria-selected="true"] .k { color: var(--accent); }
+  nav.views button:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+
+  /* ---- View shell ---- */
+  main { padding: 40px 0 96px; }
+  .view { display: none; animation: fade .3s ease; }
+  .view.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .view { animation: none; } * { scroll-behavior: auto !important; } }
+
+  .view-head { margin-bottom: 32px; max-width: 780px; }
+  .eyebrow { font-family: var(--sans); font-size: 13px; font-weight: 500; letter-spacing: 0.4px; text-transform: uppercase; color: var(--ink-subtle); }
+  .view-head h1 { font-size: clamp(28px, 3.4vw, 40px); font-weight: 600; margin: 12px 0 10px; letter-spacing: -1px; line-height: 1.12; text-wrap: balance; }
+  .view-head p { color: var(--ink-muted); font-size: 18px; line-height: 1.5; letter-spacing: -0.1px; margin: 0; }
+  code { font-family: var(--mono); font-size: 0.84em; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: var(--ink-muted); }
+
+  /* ---- Stage + graph (the product-screenshot protagonist) ---- */
+  .stage-grid { display: grid; grid-template-columns: 1fr 344px; gap: 24px; align-items: start; }
+  @media (max-width: 940px) { .stage-grid { grid-template-columns: 1fr; } }
+  .stage {
+    position: relative; background: var(--surface-1);
+    border: 1px solid var(--hairline); border-radius: 16px; padding: 28px 24px;
+    min-height: 540px; overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  .stage-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  .layers { position: relative; z-index: 2; display: flex; flex-direction: column; gap: 36px; }
+  .layer-row { display: flex; flex-direction: column; gap: 8px; }
+  .layer-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--ink-tertiary); }
+  .row-nodes { display: flex; gap: 16px; flex-wrap: wrap; }
+  .row-nodes.center { justify-content: center; }
+
+  .node {
+    position: relative; cursor: pointer; text-align: left;
+    background: var(--surface-1); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 12px 14px; min-width: 152px;
+    transition: transform .15s, border-color .15s, background .15s;
+    font-family: inherit; color: var(--ink); z-index: 2;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  .node:hover { transform: translateY(-2px); background: var(--surface-2); border-color: var(--hairline-strong); }
+  .node:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+  .node.dim { opacity: 0.32; }
+  .node.lit { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+  .node.sel { background: var(--surface-2); }
+  .node .n-title { font-weight: 500; font-size: 14px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; }
+  .node .n-file { font-family: var(--mono); font-size: 11px; color: var(--ink-subtle); margin-top: 4px; }
+  .node .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .node[data-kind="input"] { border-style: dashed; background: transparent; box-shadow: none; }
+  .node[data-kind="input"] .dot { background: var(--ink-tertiary); }
+  .node[data-kind="scip"] .dot { background: var(--accent); }
+  .node[data-kind="parser"] .dot { background: var(--heuristic); }
+  .node[data-kind="model"] { border-color: var(--accent); }
+  .node[data-kind="model"] .dot { background: var(--accent); }
+  .node[data-kind="analysis"] .dot { background: var(--med); }
+  .node[data-kind="output"] .dot { background: var(--low); }
+  .node[data-kind="exit"] .dot { background: var(--high); }
+  .node .badge { font-family: var(--mono); font-size: 9px; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; margin-left: auto; }
+  .badge.exact { background: var(--accent-dim); color: var(--accent-hover); }
+  .badge.heur { background: var(--heuristic-dim); color: var(--heuristic); }
+
+  /* package tiers */
+  .pkg-stack { display: flex; flex-direction: column; gap: 18px; position: relative; z-index: 2; }
+  .pkg-tier { border: 1px dashed var(--hairline-strong); border-radius: 12px; padding: 13px; }
+  .pkg-tier-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--ink-tertiary); margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+  .pkg-tier-label::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+  .pkg-row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  /* ---- Detail panel ---- */
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px;
+    padding: 22px; position: sticky; top: 84px; min-height: 200px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  .panel .empty { color: var(--ink-tertiary); font-family: var(--mono); font-size: 12.5px; text-align: center; padding: 44px 12px; line-height: 1.7; }
+  .panel h3 { margin: 0 0 3px; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+  .panel .p-file { font-family: var(--mono); font-size: 12px; color: var(--accent-hover); margin-bottom: 16px; word-break: break-all; }
+  .panel .p-sec { font-family: var(--sans); font-size: 13px; font-weight: 500; letter-spacing: 0.4px; text-transform: uppercase; color: var(--ink-tertiary); margin: 18px 0 6px; }
+  .panel p { margin: 0 0 9px; font-size: 14px; line-height: 1.5; color: var(--ink-muted); }
+  .panel p strong { color: var(--ink); font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 9999px; margin: 2px 4px 2px 0; background: var(--surface-2); color: var(--ink-muted); border: 1px solid var(--hairline); }
+  .chip.cx { color: var(--accent-hover); background: var(--accent-dim); border-color: transparent; }
+  .sota { border-left: 2px solid var(--accent); padding: 6px 0 6px 14px; margin-top: 10px; }
+  .sota .lbl { font-family: var(--sans); font-size: 11px; font-weight: 500; letter-spacing: .4px; text-transform: uppercase; color: var(--accent-hover); }
+  .sota p { margin: 4px 0 0; font-size: 13px; color: var(--ink-muted); }
+  .weak { border-left: 2px solid var(--med); padding: 6px 0 6px 14px; margin-top: 12px; }
+  .weak .lbl { font-family: var(--sans); font-size: 11px; font-weight: 500; letter-spacing: .4px; text-transform: uppercase; color: var(--med); }
+  .weak p { margin: 4px 0 0; font-size: 13px; color: var(--ink-muted); }
+
+  /* ---- L3 algorithm cards ---- */
+  .algos { display: grid; grid-template-columns: repeat(auto-fill, minmax(348px, 1fr)); gap: 20px; }
+  .algo { background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
+  .algo-head { padding: 18px 20px 14px; }
+  .algo-num { font-family: var(--mono); font-size: 12px; color: var(--accent-hover); }
+  .algo-head h3 { margin: 6px 0 3px; font-size: 20px; font-weight: 500; letter-spacing: -0.4px; }
+  .algo-head .a-file { font-family: var(--mono); font-size: 11.5px; color: var(--ink-subtle); }
+  .algo-body { padding: 0 20px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .algo p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-muted); }
+  pre.code {
+    margin: 0; background: var(--canvas); border: 1px solid var(--hairline); border-radius: 8px;
+    padding: 13px 14px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink-muted);
+  }
+  pre.code .c { color: var(--ink-tertiary); }
+  pre.code .k { color: var(--accent-hover); }
+  pre.code .s { color: var(--low); }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* ---- Language view ---- */
+  .lang-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .lang-grid { grid-template-columns: 1fr; } }
+  .ltable { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+  .ltable th, .ltable td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  .ltable thead th { font-family: var(--sans); font-size: 11px; font-weight: 500; letter-spacing: .4px; text-transform: uppercase; color: var(--ink-tertiary); background: var(--surface-2); }
+  .ltable tbody tr:last-child td { border-bottom: none; }
+  .ltable td.lang { font-family: var(--mono); font-weight: 500; color: var(--ink); }
+  .yes { color: var(--low); font-weight: 500; } .no { color: var(--high); font-weight: 500; } .part { color: var(--med); font-weight: 500; }
+  .thesis { background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 12px; padding: 24px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
+  .thesis h3 { margin: 0 0 12px; font-size: 20px; font-weight: 500; letter-spacing: -0.4px; }
+  .need { display: flex; gap: 13px; margin: 13px 0; }
+  .need .num { font-family: var(--mono); color: var(--accent-hover); font-weight: 500; font-size: 15px; flex: none; }
+  .need p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-muted); }
+  .need p b, .thesis p b { color: var(--ink); font-weight: 600; }
+  blockquote.say { margin: 18px 0 0; padding: 16px 18px; background: var(--surface-2); border-radius: 12px; border-left: 2px solid var(--accent); font-size: 14px; line-height: 1.55; color: var(--ink-muted); font-style: italic; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+  .legend .li { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-subtle); }
+  .legend .sw { width: 22px; height: 0; border-top: 2px solid var(--accent); }
+  .legend .sw.h { border-top: 2px dashed var(--heuristic); }
+  .footer { max-width: 1280px; margin: 56px auto 0; padding: 24px 32px 0; border-top: 1px solid var(--hairline); color: var(--ink-tertiary); font-family: var(--mono); font-size: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  .footer b { color: var(--accent-hover); font-weight: 400; }
+</style>
+
+<header>
+  <div class="head-inner">
+    <div class="brand">
+      <span class="logo">trace<b>scope</b></span>
+      <span class="tag">architecture explorer</span>
+    </div>
+    <nav class="views" role="tablist" aria-label="Architecture views">
+      <button role="tab" data-view="l1" aria-selected="true"><span class="k">L1</span> System flow</button>
+      <button role="tab" data-view="l2" aria-selected="false"><span class="k">L2</span> Packages</button>
+      <button role="tab" data-view="l3" aria-selected="false"><span class="k">L3</span> Algorithms</button>
+      <button role="tab" data-view="lang" aria-selected="false"><span class="k">?</span> Why Go</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ================= L1 : SYSTEM FLOW ================= -->
+  <section class="view active" id="view-l1" role="tabpanel">
+    <div class="view-head">
+      <div class="eyebrow">Layer 1 · High-level design</div>
+      <h1>One question, five stages</h1>
+      <p><em>"If these functions changed, what else might break, how risky is it, and who should review it?"</em> — a diff and a graph go in; a ranked, reviewer-focused impact report comes out. Select any node for what it does and where it lives.</p>
+    </div>
+    <div class="stage-grid">
+      <div class="stage">
+        <svg class="stage-svg" id="svg-l1"></svg>
+        <div class="layers" id="layers-l1"></div>
+        <div class="legend">
+          <div class="li"><span class="sw"></span> EXACT edge</div>
+          <div class="li"><span class="sw h"></span> heuristic / fallback</div>
+        </div>
+      </div>
+      <aside class="panel" id="panel-l1"><div class="empty">Select a node to inspect the stage — its role, its file, and how it sits against the state of the art.</div></aside>
+    </div>
+  </section>
+
+  <!-- ================= L2 : PACKAGES ================= -->
+  <section class="view" id="view-l2" role="tabpanel">
+    <div class="view-head">
+      <div class="eyebrow">Layer 2 · Package layering</div>
+      <h1>A textbook layered Go module</h1>
+      <p>Everything under <code>internal/</code> so nothing leaks as a public API. Dependencies flow strictly <strong>downward</strong> — no package imports a layer above it. The model in the middle (<code>graph/types.go</code>) has no dependencies of its own, so every layer can serialize and reuse it.</p>
+    </div>
+    <div class="stage-grid">
+      <div class="stage">
+        <svg class="stage-svg" id="svg-l2"></svg>
+        <div class="pkg-stack" id="stack-l2"></div>
+      </div>
+      <aside class="panel" id="panel-l2"><div class="empty">Select a package to see its responsibility, key files, and who depends on it.</div></aside>
+    </div>
+  </section>
+
+  <!-- ================= L3 : ALGORITHMS ================= -->
+  <section class="view" id="view-l3" role="tabpanel">
+    <div class="view-head">
+      <div class="eyebrow">Layer 3 · Low-level design</div>
+      <h1>The five algorithms interviewers actually probe</h1>
+      <p>Each card is the real code, its complexity, the edge case that bites, and an honest line on where it sits against the state of the art. Two of these carry a known bug or a known limit — surfaced, not hidden.</p>
+    </div>
+    <div class="algos" id="algos"></div>
+  </section>
+
+  <!-- ================= LANG : WHY GO ================= -->
+  <section class="view" id="view-lang" role="tabpanel">
+    <div class="view-head">
+      <div class="eyebrow">Coverage · Language support</div>
+      <h1>Why blast radius is reliable for Go — and only Go</h1>
+      <p>Three parsing technologies live in this repo, and the split is the whole story. It isn't a bug you can patch — it's a property of what each language's tooling can give you.</p>
+    </div>
+    <div class="lang-grid">
+      <div>
+        <table class="ltable">
+          <thead><tr><th>Language</th><th>SCIP indexer</th><th>Fallback parser</th><th>Body ranges</th><th>Cross-file edges</th></tr></thead>
+          <tbody>
+            <tr><td class="lang">Go</td><td><code>scip-go</code> <span class="part">+ go/ast re-parse</span></td><td class="yes">go/ast + go/types</td><td class="yes">reliable</td><td class="yes">reliable</td></tr>
+            <tr><td class="lang">TypeScript</td><td><code>scip-typescript</code></td><td class="no">tree-sitter (syntax only)</td><td class="part">patchy</td><td class="no">name-heuristic</td></tr>
+            <tr><td class="lang">Python</td><td><code>scip-python</code> <span class="no">· skipped on Windows</span></td><td class="no">tree-sitter (syntax only)</td><td class="part">patchy</td><td class="no">name-heuristic</td></tr>
+          </tbody>
+        </table>
+        <div class="thesis" style="margin-top:24px">
+          <h3>Blast radius needs two things at once</h3>
+          <div class="need"><span class="num">1</span><p><b>Function body line-ranges</b> — to map a diff to functions. The mapper asks "which function's <code>[start,end]</code> contains these changed lines?" (<code>diff_mapper.go:144</code>). No accurate end line → the hunk overlaps nothing → the function is never flagged.</p></div>
+          <div class="need"><span class="num">2</span><p><b>Cross-file call edges</b> — to traverse. Reverse BFS walks "who calls this?" If resolution is name-guessing, the edges are wrong or missing and the traversal is noise.</p></div>
+          <p style="font-size:14px;color:var(--ink-subtle);margin:8px 0 0">Go gets both. TS/Python get neither reliably. That asymmetry <em>is</em> the answer.</p>
+        </div>
+      </div>
+      <div>
+        <div class="thesis">
+          <h3>The Go-only hybrid, precisely</h3>
+          <p style="font-size:14px;color:var(--ink-muted);line-height:1.5"><b>Body ranges:</b> here's the twist — <code>scip-go</code> doesn't even emit <code>enclosing_range</code>, so a SCIP occurrence is just the identifier token, one line. Go recovers real body bounds by <b>re-parsing every file with <code>go/ast</code></b> (<code>refineGoFunctionBounds</code>, <code>scip.go:257</code>). That patch is Go-only.</p>
+          <p style="font-size:14px;color:var(--ink-muted);line-height:1.5;margin-top:11px"><b>Edges:</b> both Go paths are strong — <code>scip-go</code> resolves via the real compiler, and even the <em>fallback</em> uses <code>go/types</code> for receiver types (<code>golang.go:212</code>). For JS/Python the fallback is tree-sitter — a parser, not a type checker — so it literally can't know <code>store.Get()</code> reaches <code>PostgresStore.Get</code>.</p>
+          <blockquote class="say">"Blast radius needs accurate function body ranges <em>and</em> accurate cross-file edges. Go is the only language with both — <code>scip-go</code> for identity, a <code>go/ast</code> re-parse for the body bounds SCIP omits, and a type-aware fallback. TS/Python get patchy SCIP coverage and a syntax-only fallback, so I marked them experimental rather than ship a review tool that quietly lies."</blockquote>
+          <p class="p-sec" style="font-family:var(--sans);font-size:13px;font-weight:500;letter-spacing:.4px;text-transform:uppercase;color:var(--ink-tertiary);margin:18px 0 6px">If asked "how would you fix the others?"</p>
+          <p style="font-size:13.5px;color:var(--ink-muted);line-height:1.5">Lean on the SCIP indexers for TS/Python too (the path that makes Go reliable), validate coverage with the built-in <code>validate-scip</code> command, and gate non-Go output behind a confidence floor.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span>TraceScope · SCIP-backed PR blast-radius analyzer · ~7.9k LOC Go</span>
+    <span>every claim traces to a real <b>file:line</b></span>
+  </div>
+</main>
+
+<script>
+  "use strict";
+
+  /* ---------------- DATA ---------------- */
+  const L1 = {
+    rows: [
+      { label: "Inputs", center: false, nodes: [
+        { id: "diff", kind: "input", title: "git diff", file: "stdin / --diff" },
+        { id: "scipidx", kind: "input", title: "SCIP index", file: "scip-go / -ts / -py" },
+        { id: "src", kind: "input", title: "source files", file: "parser.WalkDirectory" },
+      ]},
+      { label: "Graph construction · two backends, one model", center: false, nodes: [
+        { id: "scipb", kind: "scip", title: "SCIP backend", file: "graph/scip.go", badge: "exact" },
+        { id: "parserb", kind: "parser", title: "Parser backend", file: "graph/builder.go", badge: "heur" },
+      ]},
+      { label: "", center: true, nodes: [
+        { id: "model", kind: "model", title: "GraphData", file: "graph/types.go:98" },
+      ]},
+      { label: "Analysis", center: false, nodes: [
+        { id: "mapper", kind: "analysis", title: "Diff mapper", file: "diff_mapper.go:19" },
+        { id: "bfs", kind: "analysis", title: "Blast radius", file: "query.go:23 · reverse BFS" },
+        { id: "risk", kind: "analysis", title: "Risk + review score", file: "risk_scorer.go / blast_radius.go" },
+        { id: "own", kind: "analysis", title: "Ownership", file: "git log + CODEOWNERS" },
+      ]},
+      { label: "Output", center: false, nodes: [
+        { id: "term", kind: "output", title: "Terminal", file: "output/terminal.go" },
+        { id: "json", kind: "output", title: "JSON", file: "output/json.go" },
+        { id: "gh", kind: "output", title: "GitHub PR comment", file: "output/github.go" },
+        { id: "html", kind: "output", title: "HTML report", file: "output/report.go · D3" },
+        { id: "exit", kind: "exit", title: "Exit code", file: "exit.go · 0/1/2/3" },
+      ]},
+    ],
+    edges: [
+      ["diff","mapper"],["scipidx","scipb"],["src","parserb"],
+      ["scipb","model"],["parserb","model"],
+      ["model","mapper"],["mapper","bfs"],["bfs","risk"],["own","risk"],
+      ["risk","term"],["risk","json"],["risk","gh"],["risk","html"],["risk","exit"],
+    ],
+    dashed: new Set(["src|parserb","parserb|model"]),
+    detail: {
+      diff: { t: "git diff", f: "internal/diff/parser.go", d: "A unified diff arrives on stdin or via <code>--diff</code>. Parsed into changed files + <strong>new-file line ranges</strong> using <code>sourcegraph/go-diff</code>. Binary files skipped; new/deleted files flagged.", cx: null, sota: "Standard. The subtlety is coordinate space — all ranges are in NEW-file coordinates, which is what breaks pure deletions (see L3 · Diff mapping).", weak: null },
+      scipidx: { t: "SCIP index", f: "scip-go / scip-typescript / scip-python", d: "A compiler-grade index. <code>scip-go</code> is the reliable one. Pre-existing <code>index.scip</code> wins; else generated per-language under <code>.tracescope/scip/</code>; else fall back to parsers.", cx: null, sota: "SCIP is the 2026 de-facto standard — it moved to open governance (Meta + Uber + Sourcegraph) in March 2026. The right primary format to build on.", weak: null },
+      src: { t: "source files", f: "parser/walker.go", d: "Walked and grouped by language. Feeds the parser backend when no SCIP index exists. Handles Windows junctions (WalkDir + SkipDir) to dodge infinite recursion.", cx: null, sota: null, weak: null },
+      scipb: { t: "SCIP backend", f: "internal/graph/scip.go", d: "Ingests <code>.scip</code> protobuf. Cross-file resolution is a single map lookup (<code>symbolNodeByID</code>) because SCIP symbols are globally unique. Every edge is EXACT.", cx: null, sota: "THE honest reframe: SCIP has no \"calls\" concept — only reference occurrences. This backend <em>infers</em> CALLS edges. So <code>EXACT</code> means \"the symbol resolved exactly,\" not \"this call happens at runtime.\"", weak: "No dynamic dispatch. A call through an interface resolves to the interface method node, not the concrete implementor — reachable only in 2 hops via IMPLEMENTS edges." },
+      parserb: { t: "Parser backend", f: "internal/graph/builder.go", d: "The fallback when no SCIP index exists. Builds the same GraphData from TraceScope's own parsers, resolving cross-file calls with a priority cascade of name/import heuristics. Uncertain edges tagged HEURISTIC.", cx: null, sota: "Its closest published peer (Codebase-Memory, arXiv 2603.27277) uses a near-identical 6-strategy cascade. The edge TraceScope has: it refuses an edge on ambiguity where the paper emits a 0.30 fuzzy-match. A hole beats a lie.", weak: null },
+      model: { t: "GraphData", f: "internal/graph/types.go:98", d: "The serializable hub: two flat slices (Nodes, Edges) + resolution stats + per-edge confidence. Backend-agnostic — everything downstream is identical whether built by SCIP or parsers. Persisted atomically to <code>.tracescope/graph.json</code>.", cx: null, sota: "Carries <code>RootPath</code> but no repo + commit SHA — the gap behind the dashboard's unsound \"analyze any PR\" feature. Real tools key indexes on (repo, commit SHA).", weak: "Adjacency is rebuilt O(V+E) per query; edges carry no call-site line, so you can't answer \"where does A call B.\" SQLite + symbol-string IDs would fix both." },
+      mapper: { t: "Diff → functions", f: "internal/analyzer/diff_mapper.go:19", d: "Maps changed line ranges to function nodes by inclusive interval overlap against each function's <code>[StartLine, EndLine]</code>. New/deleted files short-circuit: every function counts.", cx: "O(D × F) path match", sota: null, weak: "A pure-deletion hunk yields zero line ranges → the function is never seeded → its callers are never traversed. See L3." },
+      bfs: { t: "Blast radius (reverse BFS)", f: "internal/graph/query.go:23", d: "Depth-limited multi-source reverse BFS from changed functions to their transitive callers. Follows CALLS/CONTAINS/EXTENDS/IMPLEMENTS in reverse; excludes IMPORTS to avoid over-inflation.", cx: "O(V + E)", sota: "This is exactly Google TAP / Meta PTS stage 1 (candidate generation) — at function granularity, which is strictly more precise than their build-target granularity.", weak: "Only stage 1. Google's data: ~1.2% of reachable targets ever catch a real breakage. The value is in a ranker on top — which is hand-tuned here." },
+      risk: { t: "Risk + review score", f: "risk_scorer.go:40 · blast_radius.go:242", d: "Two numbers per function: a categorical HIGH/MED/LOW rule ladder (for CI gating) and an additive review score (the sort key), with capped bonuses so one mega-hub can't dominate.", cx: null, sota: "Risk = P(defect) × Impact. Every input here is a product metric → it models Impact only. The score is identical for a careful and a reckless PR on the same function — it ranks functions, not changes.", weak: "Magic-number weights, never calibrated. Two bugs: double-counting (evidence enters twice) and saturating caps (6 vs 60 callers score the same)." },
+      own: { t: "Ownership", f: "internal/ownership/", d: "Last author via <code>git log -1</code> per file + CODEOWNERS reviewer suggestion. Bounded worker pool, degrades gracefully if git/CODEOWNERS absent.", cx: null, sota: "Bird et al. (FSE'11): the predictive signal is the number of minor contributors — a distribution. A single last-author name can't express it, and one gofmt sweep makes one person \"own\" the repo.", weak: "git log, not blame; file-level, not the changed hunks you already know." },
+      term: { t: "Terminal", f: "internal/output/terminal.go", d: "ANSI-colored human report to stderr, grouped HIGH/MED/LOW. Convention: machine JSON → stdout, everything human → stderr, so <code>| jq</code> works cleanly.", cx: null, sota: null, weak: null },
+      json: { t: "JSON", f: "internal/output/json.go", d: "The whole result serialized to stdout — 13 lines. Consumed by CI and the web server (which is a thin adapter over the same engine).", cx: null, sota: null, weak: null },
+      gh: { t: "GitHub PR comment", f: "internal/output/github.go", d: "An idempotent upsert: a hidden <code>&lt;!-- tracescope --&gt;</code> marker lets a re-run update the existing comment instead of spamming. Ranked reviewer-focus table, driven through the <code>gh</code> CLI.", cx: null, sota: "This — not the dashboard — is the product surface real tools ship. The SOTA next step is SARIF + a check run, which puts blast radius inline in the diff (and needs a GitHub App, not OAuth).", weak: "Comment lookup scans only the first API page." },
+      html: { t: "HTML report", f: "internal/output/report.go", d: "A self-contained interactive D3 force graph — search, filters, hotspots, blast-radius overlay — with D3 embedded at compile time via <code>go:embed</code>. Zero network, opens from <code>file://</code>.", cx: null, sota: "Notably, this already delivers the dashboard's value with no server, no auth, no CORS — which is why the web tier is the part that needs hardening, not the visualization.", weak: null },
+      exit: { t: "Exit code", f: "internal/cmd/exit.go", d: "The CI contract: 0 = no significant risk, 1 = HIGH, 2 = MEDIUM, 3 = tool failure. A broken invocation exits 3, never 1 — so CI can't confuse \"tool crashed\" with \"dangerous PR.\"", cx: null, sota: "Clean design. Currently, though, the dogfooding workflow sets continue-on-error: true — so the gate is built, tested, and not actually gating. One line makes it real.", weak: null },
+    }
+  };
+
+  const L2 = {
+    tiers: [
+      { label: "entry", nodes: [ { id: "main", title: "cmd/tracescope", file: "main() · only os.Exit" } ] },
+      { label: "orchestration", nodes: [ { id: "cmd", title: "internal/cmd", file: "cobra tree, flags, pipeline" }, { id: "server", title: "internal/server", file: "thin HTTP adapter · same engine" } ] },
+      { label: "analysis & rendering", nodes: [ { id: "analyzer", title: "analyzer", file: "diff-map, blast radius, risk" }, { id: "output", title: "output", file: "terminal / json / github / html" }, { id: "ownership", title: "ownership", file: "git log + CODEOWNERS" } ] },
+      { label: "graph model & diff", nodes: [ { id: "graph", title: "graph", file: "types, scip, builder, query, store" }, { id: "diff", title: "diff", file: "unified-diff parsing" } ] },
+      { label: "parsing & config", nodes: [ { id: "parser", title: "parser", file: "go/ast + tree-sitter, walker, cache" }, { id: "config", title: "config", file: ".tracescope.yaml" } ] },
+    ],
+    edges: [
+      ["main","cmd"],["cmd","analyzer"],["cmd","output"],["cmd","ownership"],["server","analyzer"],["server","graph"],
+      ["analyzer","graph"],["analyzer","diff"],["output","graph"],["ownership","graph"],
+      ["graph","parser"],["graph","config"],["diff","parser"],
+    ],
+    detail: {
+      main: { t: "cmd/tracescope", f: "cmd/tracescope/main.go", d: "A 16-line shell. The <strong>only</strong> place in the binary that calls <code>os.Exit</code> — every risk result travels up as a typed error and is mapped in exactly one place.", cx: "depends on: internal/cmd" },
+      cmd: { t: "internal/cmd", f: "root.go, analyze.go, index.go, why.go …", d: "The Cobra command tree, flag parsing, and pipeline orchestration. The lower packages are pure transforms; orchestration lives only here, which is what makes them unit-testable without a CLI.", cx: "depends on: analyzer, output, ownership, graph" },
+      server: { t: "internal/server", f: "internal/server/server.go", d: "A gorilla/mux REST API backing the dashboard. Imports and calls the <strong>exact same engine packages</strong> the CLI does — zero algorithmic duplication. The strongest architectural point in the repo.", cx: "depends on: analyzer, graph, ownership, diff" },
+      analyzer: { t: "internal/analyzer", f: "blast_radius.go, risk_scorer.go, diff_mapper.go, hotspots.go", d: "Diff→function mapping, blast-radius orchestration, the two-score risk model, hotspots. Orchestrates graph traversal but delegates the BFS itself to the graph package.", cx: "depends on: graph, diff" },
+      output: { t: "internal/output", f: "terminal.go, json.go, github.go, report.go", d: "Four renderers over one result type. Machine JSON to stdout, human output to stderr. The HTML report embeds D3 via go:embed for a fully offline interactive graph.", cx: "depends on: analyzer, graph" },
+      ownership: { t: "internal/ownership", f: "ownership.go, git_log.go, codeowners.go", d: "Last-author lookup + CODEOWNERS suggestion. Typed as <code>interface{}</code> in the result to dodge an import cycle (ownership imports analyzer, not the reverse).", cx: "depends on: (git, CODEOWNERS files)" },
+      graph: { t: "internal/graph", f: "types.go, scip.go, builder.go, query.go, store.go, compare.go", d: "The data model + both graph backends + persistence + traversal + a differential harness that measures how close the two backends are. The hub every other layer depends on.", cx: "depends on: parser, config · imported by: everything above" },
+      diff: { t: "internal/diff", f: "internal/diff/parser.go", d: "Unified-diff parsing → changed files + new-file line ranges. Wraps sourcegraph/go-diff. The load-bearing state machine that (currently) drops pure-deletion hunks.", cx: "depends on: (go-diff)" },
+      parser: { t: "internal/parser", f: "golang.go, typescript.go, python.go, treesitter.go, registry.go", d: "Per-language source parsing → uniform FileResult. Go uses go/ast + go/types (type-aware); JS/TS/Python use tree-sitter (syntax only). Strategy + registry pattern, bounded worker pool.", cx: "depends on: (go/ast, tree-sitter)" },
+      config: { t: "internal/config", f: "internal/config/config.go", d: "<code>.tracescope.yaml</code> schema, defaults, upward file discovery. Merge only overrides on non-zero values, so a malformed config degrades to defaults rather than a zero-value struct.", cx: "depends on: (yaml)" },
+    }
+  };
+
+  const ALGOS = [
+    { n: "01", t: "Reverse BFS blast radius", f: "internal/graph/query.go:23", cx: ["O(V + E)", "multi-source", "depth ≤ 5"],
+      d: "From the changed functions, walk the graph <em>backwards</em> to everything that depends on them. Slice-backed queue with a head index (no per-element list allocs); <code>visited</code> marked at enqueue, so each node gets its minimum depth.",
+      code: `<span class="k">for</span> head &lt; len(queue) {
+  curr := queue[head]; head++
+  <span class="k">if</span> curr.depth &gt;= maxDepth { <span class="k">continue</span> }
+  <span class="k">for</span> _, nb := <span class="k">range</span> reverseAdj[curr.id] {
+    <span class="k">if</span> visited[nb.source] { <span class="k">continue</span> }
+    visited[nb.source] = <span class="k">true</span>
+    conf := mergeConfidence(conf[curr.id], nb.confidence) <span class="c">// weakest link</span>
+    queue = append(queue, entry{nb.source, curr.depth + 1})
+  }
+}`,
+      edge: "The class-hub guard (query.go:55): a CALLS edge is reversed only if its target is a function. SCIP emits CALLS from a function to the <em>types</em> it names, so without this a popular type floods the radius. Real bug, fixed in f84e4cd.",
+      sota: "Google TAP / Meta PTS stage 1 (candidate generation) — at function granularity, strictly more precise than build-target granularity. But it's only stage 1: the ranker on top is where the value is." },
+    { n: "02", t: "resolveCall priority cascade", f: "internal/graph/builder.go:592", cx: ["8-step ladder", "precision > recall"],
+      d: "With no SCIP index, \"what does this call target?\" is answered from syntax alone — strongest evidence first, confidence set by how much static info backed the match. The whole thing rests on one gate:",
+      code: `<span class="k">func</span> resolveUnique(ids []string) (string, status) {
+  <span class="k">switch</span> len(ids) {
+  <span class="k">case</span> 0:  <span class="k">return</span> <span class="s">""</span>, unresolved
+  <span class="k">case</span> 1:  <span class="k">return</span> ids[0], resolved
+  <span class="k">default</span>: <span class="k">return</span> <span class="s">""</span>, ambiguous <span class="c">// emit NO edge</span>
+  }
+}`,
+      edge: "Ambiguity short-circuits the entire cascade — the graph would rather omit a call than fabricate one. init() is deliberately dropped for Go (runtime-invoked, not user-called).",
+      sota: "Off the CHA→RTA→VTA→Andersen precision lattice entirely — unsound (refuses ambiguous edges) AND imprecise (links on globally-unique name). The fix is go/ssa + vta.CallGraph, exactly what govulncheck ships, as a third DYNAMIC tier." },
+    { n: "03", t: "SCIP ingestion & enclosing ranges", f: "internal/graph/scip.go", cx: ["single map lookup", "hybrid go/ast"],
+      d: "SCIP symbols are globally unique strings, so cross-file resolution is one <code>symbolNodeByID[symbol]</code> lookup — no name heuristics. A SCIP occurrence is just the identifier token, so body bounds come from <code>enclosing_range</code>… except scip-go doesn't emit it.",
+      code: `<span class="c">// scip-go omits enclosing_range, so re-parse with go/ast</span>
+<span class="k">func</span> refineGoFunctionBounds(...) {
+  endByStart := goAST.endLinesByStartLine(file)
+  <span class="k">if</span> astEnd := endByStart[node.StartLine]; astEnd &gt; node.EndLine {
+    node.EndLine = astEnd <span class="c">// widen identifier-only span to real body</span>
+  }
+}`,
+      edge: "The hybrid: trust SCIP for symbol identity, but re-run the native Go parser for accurate body bounds. For Go, caller attribution is therefore go/ast-derived, not SCIP-derived — don't claim SCIP precision for it.",
+      sota: "SCIP encodes references, not calls — so CALLS is inferred and EXACT means \"symbol resolved,\" not \"runtime call.\" That honesty is the right posture; the soundiness literature asks every tool to declare exactly where it's unsound." },
+    { n: "04", t: "Two-score risk model", f: "internal/analyzer/blast_radius.go:242", cx: ["rule ladder", "additive score", "deterministic"],
+      d: "A categorical HIGH/MED/LOW ladder for CI gating, plus a separate additive review score that ranks the report — with capped caller bonuses so one mega-hub can't dominate.",
+      code: `score := base[risk] <span class="c">// 80 / 50 / 20</span>
+score += minInt(prodCallers*4, <span class="s">24</span>) <span class="c">// ← saturates: 6==60 callers</span>
+score += minInt(callers*2, <span class="s">12</span>)
+<span class="k">if</span> node.IsExport { score += 10 } <span class="c">// ← already folded into base via risk</span>
+<span class="k">if</span> conf == Heuristic { score -= 8 }`,
+      edge: "Two bugs live here: double-counting (exported + caller count feed both the risk level AND the additive bonus) and saturating caps (log1p is the free fix). Every sort has a unique Node.ID tiebreaker for byte-stable CI output.",
+      sota: "Risk = P(defect) × Impact, but every input is a product metric of the callee — it models Impact only. Rahman & Devanbu: product metrics have high stasis. It ranks functions, not changes. The P(defect) term (churn, prior fixes) is all in git log." },
+    { n: "05", t: "Diff → function interval mapping", f: "internal/diff/parser.go:60", cx: ["new-file coords", "known bug"],
+      d: "Walks a hunk in new-file coordinates. A <code>+</code> line opens/extends a range and advances the counter; a context line closes it and advances; a <code>-</code> line closes it but does <em>not</em> advance (the line isn't in the new file).",
+      code: `<span class="k">case</span> <span class="s">'-'</span>:
+  <span class="c">// closes an open range — but never OPENS one,</span>
+  <span class="c">// and doesn't advance the line counter.</span>
+  <span class="k">if</span> rangeStart != -1 {
+    ranges = append(ranges, LineRange{rangeStart, line - 1})
+    rangeStart = -1
+  }
+  <span class="c">// a pure-deletion hunk -> ZERO ranges -> function unseen</span>`,
+      edge: "Delete lines from the middle of a function with no additions and the hunk produces no ranges — so the function is never flagged and its callers are never traversed. Deleting code is among the highest-blast-radius changes; it's the case that slips through. Fix: anchor a zero-width range on the '-' line.",
+      sota: "Independently confirmed by the change-impact research: \"deleted functions are invisible — a removed exported function is the highest-blast-radius change type, and by construction you can't see its callers.\" NEW-coords-only mapping is the root cause." },
+  ];
+
+  /* ---------------- RENDER ---------------- */
+  function nodeEl(n, view) {
+    const b = document.createElement("button");
+    b.className = "node"; b.dataset.kind = n.kind || "pkg"; b.dataset.id = n.id;
+    b.setAttribute("data-node", view);
+    const badge = n.badge ? `<span class="badge ${n.badge}">${n.badge === "exact" ? "EXACT" : "heuristic"}</span>` : "";
+    const dot = (n.kind && n.kind !== "pkg") ? '<span class="dot"></span>' : "";
+    b.innerHTML = `<div class="n-title">${dot}${n.title}${badge}</div><div class="n-file">${n.file}</div>`;
+    return b;
+  }
+
+  const layers1 = document.getElementById("layers-l1");
+  L1.rows.forEach(row => {
+    const r = document.createElement("div"); r.className = "layer-row";
+    if (row.label) { const l = document.createElement("div"); l.className = "layer-label"; l.textContent = row.label; r.appendChild(l); }
+    const rn = document.createElement("div"); rn.className = "row-nodes" + (row.center ? " center" : "");
+    row.nodes.forEach(n => rn.appendChild(nodeEl(n, "l1")));
+    r.appendChild(rn); layers1.appendChild(r);
+  });
+
+  const stack2 = document.getElementById("stack-l2");
+  L2.tiers.forEach(tier => {
+    const t = document.createElement("div"); t.className = "pkg-tier";
+    const l = document.createElement("div"); l.className = "pkg-tier-label"; l.textContent = tier.label;
+    t.appendChild(l);
+    const row = document.createElement("div"); row.className = "pkg-row";
+    tier.nodes.forEach(n => row.appendChild(nodeEl(n, "l2")));
+    t.appendChild(row); stack2.appendChild(t);
+  });
+
+  const algosEl = document.getElementById("algos");
+  ALGOS.forEach(a => {
+    const c = document.createElement("div"); c.className = "algo";
+    c.innerHTML = `
+      <div class="algo-head">
+        <div class="algo-num">${a.n}</div>
+        <h3>${a.t}</h3>
+        <div class="a-file">${a.f}</div>
+      </div>
+      <div class="algo-body">
+        <div class="meta-row">${a.cx.map(x => `<span class="chip cx">${x}</span>`).join("")}</div>
+        <p>${a.d}</p>
+        <pre class="code">${a.code}</pre>
+        <div class="weak"><span class="lbl">Edge case / gotcha</span><p>${a.edge}</p></div>
+        <div class="sota"><span class="lbl">SOTA vs ours</span><p>${a.sota}</p></div>
+      </div>`;
+    algosEl.appendChild(c);
+  });
+
+  /* ---------------- DETAIL PANELS ---------------- */
+  function renderPanel(panelId, d) {
+    const p = document.getElementById(panelId);
+    if (!d) return;
+    let html = `<h3>${d.t}</h3><div class="p-file">${d.f}</div><p>${d.d}</p>`;
+    if (d.cx) html += `<div class="p-sec">Complexity / deps</div><span class="chip cx">${d.cx}</span>`;
+    if (d.sota) html += `<div class="sota"><span class="lbl">SOTA vs ours vs why</span><p>${d.sota}</p></div>`;
+    if (d.weak) html += `<div class="weak"><span class="lbl">Known limit</span><p>${d.weak}</p></div>`;
+    p.innerHTML = html;
+  }
+
+  function wireNodes(view, detailMap, panelId, svgId, edges, dashed) {
+    const nodes = Array.from(document.querySelectorAll(`.node[data-node="${view}"]`));
+    const byId = {}; nodes.forEach(n => byId[n.dataset.id] = n);
+
+    function drawEdges() {
+      const svg = document.getElementById(svgId);
+      const stage = svg.parentElement;
+      const sb = stage.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${sb.width} ${sb.height}`);
+      let paths = "";
+      edges.forEach(([a, b]) => {
+        const ea = byId[a], eb = byId[b]; if (!ea || !eb) return;
+        const ra = ea.getBoundingClientRect(), rb = eb.getBoundingClientRect();
+        const x1 = ra.left - sb.left + ra.width / 2, y1 = ra.top - sb.top + ra.height;
+        const x2 = rb.left - sb.left + rb.width / 2, y2 = rb.top - sb.top;
+        const my = (y1 + y2) / 2;
+        const isDash = dashed && dashed.has(a + "|" + b);
+        const col = isDash ? "var(--heuristic)" : "var(--hairline-strong)";
+        const da = isDash ? 'stroke-dasharray="5 4"' : "";
+        paths += `<path d="M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}" fill="none" stroke="${col}" stroke-width="1.5" ${da} data-a="${a}" data-b="${b}" opacity="0.7"/>`;
+      });
+      svg.innerHTML = paths;
+    }
+
+    function highlight(id) {
+      const svg = document.getElementById(svgId);
+      const adj = new Set();
+      edges.forEach(([a, b]) => { if (a === id || b === id) { adj.add(a); adj.add(b); } });
+      nodes.forEach(n => {
+        n.classList.toggle("dim", adj.size > 0 && !adj.has(n.dataset.id));
+        n.classList.toggle("lit", n.dataset.id === id);
+      });
+      svg.querySelectorAll("path").forEach(pt => {
+        const on = pt.dataset.a === id || pt.dataset.b === id;
+        pt.setAttribute("opacity", on ? "1" : "0.14");
+        pt.setAttribute("stroke", on ? "var(--accent)" : (pt.getAttribute("stroke-dasharray") ? "var(--heuristic)" : "var(--hairline-strong)"));
+        pt.setAttribute("stroke-width", on ? "2.2" : "1.5");
+      });
+    }
+    function clearHi() {
+      const svg = document.getElementById(svgId);
+      nodes.forEach(n => { n.classList.remove("dim"); if (!n.classList.contains("sel")) n.classList.remove("lit"); });
+      svg.querySelectorAll("path").forEach(pt => {
+        pt.setAttribute("opacity", "0.7");
+        pt.setAttribute("stroke", pt.getAttribute("stroke-dasharray") ? "var(--heuristic)" : "var(--hairline-strong)");
+        pt.setAttribute("stroke-width", "1.5");
+      });
+    }
+
+    nodes.forEach(n => {
+      const id = n.dataset.id;
+      n.addEventListener("mouseenter", () => highlight(id));
+      n.addEventListener("mouseleave", clearHi);
+      n.addEventListener("focus", () => highlight(id));
+      n.addEventListener("blur", clearHi);
+      n.addEventListener("click", () => {
+        nodes.forEach(x => x.classList.remove("sel", "lit"));
+        n.classList.add("sel", "lit");
+        renderPanel(panelId, detailMap[id]);
+      });
+    });
+
+    return drawEdges;
+  }
+
+  const draw1 = wireNodes("l1", L1.detail, "panel-l1", "svg-l1", L1.edges, L1.dashed);
+  const draw2 = wireNodes("l2", L2.detail, "panel-l2", "svg-l2", L2.edges, null);
+
+  function redraw() { if (document.getElementById("view-l1").classList.contains("active")) draw1(); if (document.getElementById("view-l2").classList.contains("active")) draw2(); }
+
+  /* ---------------- VIEW SWITCHING ---------------- */
+  const tabs = Array.from(document.querySelectorAll("nav.views button"));
+  function show(view) {
+    tabs.forEach(t => t.setAttribute("aria-selected", String(t.dataset.view === view)));
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + view).classList.add("active");
+    requestAnimationFrame(redraw);
+  }
+  tabs.forEach(t => t.addEventListener("click", () => show(t.dataset.view)));
+
+  /* ---------------- INIT ---------------- */
+  window.addEventListener("resize", () => requestAnimationFrame(redraw));
+  requestAnimationFrame(() => { draw1(); draw2(); });
+  setTimeout(redraw, 60);
+</script>
+</body>
+</html>

@@ -63,6 +63,26 @@ func extractChangedLinesFromBody(hunk *diff.Hunk) []LineRange {
 	body := string(hunk.Body)
 	line := int(hunk.NewStartLine)
 	rangeStart := -1
+	// deletionAnchor marks the new-file position of a run of deleted lines that
+	// has no accompanying addition. Deleted lines don't exist in the new file,
+	// so a pure deletion would otherwise produce no range — leaving the enclosing
+	// function unflagged. We anchor a zero-width range at the deletion point so it
+	// still overlaps that function's [Start, End]. An addition at the same spot (a
+	// modification) supersedes the anchor, since its range already covers the line.
+	deletionAnchor := -1
+
+	closeAdded := func() {
+		if rangeStart != -1 {
+			ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
+			rangeStart = -1
+		}
+	}
+	flushDeletion := func() {
+		if deletionAnchor != -1 {
+			ranges = append(ranges, LineRange{Start: deletionAnchor, End: deletionAnchor})
+			deletionAnchor = -1
+		}
+	}
 
 	lines := splitLines(body)
 	// Remove trailing empty string produced by splitLines when body ends with newline
@@ -73,10 +93,8 @@ func extractChangedLinesFromBody(hunk *diff.Hunk) []LineRange {
 	for _, bodyLine := range lines {
 		if len(bodyLine) == 0 {
 			// Empty context line — still advances line counter
-			if rangeStart != -1 {
-				ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
-				rangeStart = -1
-			}
+			closeAdded()
+			flushDeletion()
 			line++
 			continue
 		}
@@ -85,31 +103,32 @@ func extractChangedLinesFromBody(hunk *diff.Hunk) []LineRange {
 
 		switch prefix {
 		case '+':
+			// An addition at the deletion point is a modification; its range
+			// covers the line, so drop the pending anchor rather than duplicate it.
+			deletionAnchor = -1
 			if rangeStart == -1 {
 				rangeStart = line
 			}
 			line++
 		case '-':
-			// Deleted line — doesn't exist in new file
-			if rangeStart != -1 {
-				ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
-				rangeStart = -1
+			// Deleted line — doesn't exist in the new file, so the counter does
+			// not advance. Record the deletion point (first of a consecutive run).
+			closeAdded()
+			if deletionAnchor == -1 {
+				deletionAnchor = line
 			}
 		case '\\':
-			// No newline marker — skip
+			// No newline marker — skip; leave any pending anchors intact.
 		default: // context line (space or anything else)
-			if rangeStart != -1 {
-				ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
-				rangeStart = -1
-			}
+			closeAdded()
+			flushDeletion()
 			line++
 		}
 	}
 
-	// Close any open range
-	if rangeStart != -1 {
-		ranges = append(ranges, LineRange{Start: rangeStart, End: line - 1})
-	}
+	// Close any open range and flush a trailing deletion (e.g. lines removed at EOF).
+	closeAdded()
+	flushDeletion()
 
 	return ranges
 }

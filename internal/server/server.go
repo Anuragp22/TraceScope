@@ -33,6 +33,7 @@ type Server struct {
 
 // Config holds server configuration.
 type Config struct {
+	Host      string
 	Port      int
 	RepoRoot  string
 	GraphFile string
@@ -269,17 +270,20 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
 	head := r.URL.Query().Get("head")
 	uncommitted := r.URL.Query().Get("uncommitted") == "true"
 
+	// base/head come straight from the query string. `--end-of-options` forces git
+	// to treat the revision spec as a revision even if it begins with '-', so an
+	// attacker can't smuggle a git flag (e.g. ?base=--output=...) through it.
 	var args []string
 	if uncommitted {
 		// Staged + unstaged changes
-		args = []string{"-C", s.repoRoot, "diff", "HEAD"}
+		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", "HEAD"}
 	} else if base != "" && head != "" {
-		args = []string{"-C", s.repoRoot, "diff", base + "..." + head}
+		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", base + "..." + head}
 	} else if base != "" {
-		args = []string{"-C", s.repoRoot, "diff", base + "...HEAD"}
+		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", base + "...HEAD"}
 	} else {
 		// Default: uncommitted changes
-		args = []string{"-C", s.repoRoot, "diff", "HEAD"}
+		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", "HEAD"}
 	}
 
 	out, err := exec.Command("git", args...).Output()
@@ -377,10 +381,18 @@ func ListenAndServe(cfg Config) error {
 		return err
 	}
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	// Bind to loopback by default. The server has no authentication and can shell
+	// out to git against the working tree, so exposing it on all interfaces would
+	// let anyone on the network read source-derived data. Binding is opt-in via
+	// --host for the rare case where remote access is genuinely wanted.
+	host := cfg.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("%s:%d", host, cfg.Port)
 	log.Info().Str("addr", addr).Int("nodes", len(srv.graphData.Nodes)).Int("edges", len(srv.graphData.Edges)).Msg("starting TraceScope API server")
 
-	fmt.Fprintf(os.Stderr, "\n  TraceScope API server running at http://localhost%s\n", addr)
+	fmt.Fprintf(os.Stderr, "\n  TraceScope API server running at http://%s\n", addr)
 	fmt.Fprintf(os.Stderr, "  Graph: %d nodes, %d edges\n\n", len(srv.graphData.Nodes), len(srv.graphData.Edges))
 	fmt.Fprintf(os.Stderr, "  Endpoints:\n")
 	fmt.Fprintf(os.Stderr, "    GET  /api/graph      Full dependency graph\n")
