@@ -45,9 +45,19 @@ jobs:
       - name: Analyze blast radius
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set +e
-          git diff origin/${{ github.base_ref }}...HEAD | ./tracescope analyze --github-comment --owners --top 15
+          # Diff the PR's own base..head from the event SHAs. On a pull_request
+          # the checkout is the merge commit, so `origin/<base>...HEAD` can yield
+          # an empty diff; the event SHAs always resolve to the PR's real changes.
+          DIFF=$(git diff "${BASE_SHA}...${HEAD_SHA}")
+          if [ -z "$DIFF" ]; then
+            echo "No changes between base and head; nothing to analyze."
+            exit 0
+          fi
+          printf '%s\n' "$DIFF" | ./tracescope analyze --github-comment --owners --top 15
           code=${PIPESTATUS[1]}
           echo "tracescope exit code: $code"
           # Exit-code contract (internal/cmd/exit.go): 0 ok, 1 HIGH risk,
