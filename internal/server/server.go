@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/anurag/tracescope/internal/analyzer"
@@ -68,10 +67,8 @@ func (s *Server) Handler() http.Handler {
 
 	r.HandleFunc("/api/graph", s.handleGraph).Methods("GET")
 	r.HandleFunc("/api/hotspots", s.handleHotspots).Methods("GET")
-	r.HandleFunc("/api/analyze/branches", s.handleBranches).Methods("GET")
 	r.HandleFunc("/api/analyze/diff", s.handleGitDiff).Methods("GET")
 	r.HandleFunc("/api/analyze", s.handleAnalyze).Methods("POST")
-	r.HandleFunc("/api/why", s.handleWhy).Methods("GET")
 	r.HandleFunc("/api/stats", s.handleStats).Methods("GET")
 	r.HandleFunc("/api/repo", s.handleRepo).Methods("GET")
 	r.HandleFunc("/api/reload", s.handleReload).Methods("POST")
@@ -211,35 +208,6 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-// GET /api/why?from=Build&to=Score&reverse=false
-func (s *Server) handleWhy(w http.ResponseWriter, r *http.Request) {
-	from := r.URL.Query().Get("from")
-	to := r.URL.Query().Get("to")
-	if from == "" || to == "" {
-		httpError(w, "missing 'from' and 'to' query parameters", http.StatusBadRequest)
-		return
-	}
-
-	reverse := r.URL.Query().Get("reverse") == "true"
-
-	// Resolve function names
-	graphData := s.graphSnapshot()
-	fromMatches := graph.FindNodesByName(graphData, from)
-	if len(fromMatches) == 0 {
-		httpError(w, fmt.Sprintf("no function matching %q", from), http.StatusNotFound)
-		return
-	}
-
-	toMatches := graph.FindNodesByName(graphData, to)
-	if len(toMatches) == 0 {
-		httpError(w, fmt.Sprintf("no function matching %q", to), http.StatusNotFound)
-		return
-	}
-
-	result := graph.FindShortestPath(graphData, fromMatches[0].Node.ID, toMatches[0].Node.ID, reverse)
-	writeJSON(w, result)
-}
-
 // POST /api/reload — reload graph from disk
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	gd, err := s.store.Load(s.graphFile)
@@ -256,55 +224,12 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/analyze/branches — list git branches
-func (s *Server) handleBranches(w http.ResponseWriter, r *http.Request) {
-	out, err := exec.Command("git", "-C", s.repoRoot, "branch", "--format=%(refname:short)").Output()
-	if err != nil {
-		httpError(w, "listing branches: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var branches []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			branches = append(branches, line)
-		}
-	}
-
-	// Also get current branch
-	currentOut, _ := exec.Command("git", "-C", s.repoRoot, "rev-parse", "--abbrev-ref", "HEAD").Output()
-	current := strings.TrimSpace(string(currentOut))
-
-	writeJSON(w, map[string]interface{}{
-		"branches": branches,
-		"current":  current,
-	})
-}
-
-// GET /api/analyze/diff?base=main&head=HEAD&uncommitted=true
+// GET /api/analyze/diff?uncommitted=true — analyze the served repo's own changes
 func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
-	base := r.URL.Query().Get("base")
-	head := r.URL.Query().Get("head")
-	uncommitted := r.URL.Query().Get("uncommitted") == "true"
-
-	// base/head come straight from the query string. `--end-of-options` forces git
-	// to treat the revision spec as a revision even if it begins with '-', so an
-	// attacker can't smuggle a git flag (e.g. ?base=--output=...) through it.
-	var args []string
-	if uncommitted {
-		// Staged + unstaged changes
-		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", "HEAD"}
-	} else if base != "" && head != "" {
-		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", base + "..." + head}
-	} else if base != "" {
-		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", base + "...HEAD"}
-	} else {
-		// Default: uncommitted changes
-		args = []string{"-C", s.repoRoot, "diff", "--end-of-options", "HEAD"}
-	}
-
-	out, err := exec.Command("git", args...).Output()
+	// Only the working-tree diff against HEAD is exposed. There is no
+	// user-controlled revision here by design — the arbitrary base/head form was
+	// removed so no query value ever reaches git's argument parser.
+	out, err := exec.Command("git", "-C", s.repoRoot, "diff", "HEAD").Output()
 	if err != nil {
 		// git diff returns exit code 1 if there are differences — check if output exists
 		if len(out) == 0 {
