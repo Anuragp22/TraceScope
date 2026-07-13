@@ -80,18 +80,12 @@ export interface AnalysisResult {
   max_depth: number;
 }
 
-export interface PathStep {
-  node: GraphNode;
-  edge_type?: string;
-}
-
-export interface PathResult {
-  found: boolean;
-  path?: PathStep[];
-  source: GraphNode;
-  target: GraphNode;
-  length: number;
-  message?: string;
+// RepoInfo identifies the repo + revision the served graph was built from, so
+// the dashboard can scope PR analysis to the same codebase.
+export interface RepoInfo {
+  remote: string;
+  commit: string;
+  root_path: string;
 }
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
@@ -103,11 +97,6 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export interface BranchesResult {
-  branches: string[];
-  current: string;
-}
-
 export const api = {
   getGraph: () => fetchAPI<GraphData>("/api/graph"),
   getStats: () => fetchAPI<StatsData>("/api/stats"),
@@ -116,23 +105,17 @@ export const api = {
     if (lang) params.set("lang", lang);
     return fetchAPI<HotspotsResult>(`/api/hotspots?${params}`);
   },
+  getRepo: () => fetchAPI<RepoInfo>("/api/repo"),
   analyze: (diff: string, depth = 5) =>
     fetchAPI<AnalysisResult>(`/api/analyze?depth=${depth}`, {
       method: "POST",
       body: diff,
     }),
-  getBranches: () => fetchAPI<BranchesResult>("/api/analyze/branches"),
-  analyzeDiff: (opts: { base?: string; head?: string; uncommitted?: boolean; depth?: number }) => {
+  // Analyze the served repo's own working-tree changes (server is localhost-only).
+  analyzeLocal: (opts: { uncommitted?: boolean; depth?: number } = {}) => {
     const params = new URLSearchParams();
-    if (opts.base) params.set("base", opts.base);
-    if (opts.head) params.set("head", opts.head);
-    if (opts.uncommitted) params.set("uncommitted", "true");
+    if (opts.uncommitted !== false) params.set("uncommitted", "true");
     if (opts.depth) params.set("depth", String(opts.depth));
     return fetchAPI<AnalysisResult>(`/api/analyze/diff?${params}`);
   },
-  why: (from: string, to: string, reverse = false) =>
-    fetchAPI<PathResult>(
-      `/api/why?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&reverse=${reverse}`
-    ),
-  reload: () => fetchAPI<{ status: string; nodes: number; edges: number }>("/api/reload", { method: "POST" }),
 };

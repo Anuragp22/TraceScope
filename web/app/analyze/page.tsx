@@ -1,19 +1,11 @@
 "use client";
 
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { api, type AnalysisResult } from "@/lib/api";
+import { api, type AnalysisResult, type RepoInfo } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
 import { useState } from "react";
-import { AlertTriangle, FileCode, Braces, Shield, Github, LogIn } from "lucide-react";
+import { AlertTriangle, FileCode, Braces, Shield, Github, LogIn, GitBranch } from "lucide-react";
 import { signIn } from "@/lib/auth-client";
-
-interface GitHubRepo {
-  id: number;
-  full_name: string;
-  name: string;
-  owner: { login: string };
-  private: boolean;
-}
 
 interface GitHubPR {
   number: number;
@@ -25,11 +17,6 @@ interface GitHubPR {
 
 // Proxy GitHub API calls through our server-side route
 const githubProxy = {
-  getRepos: async (): Promise<GitHubRepo[]> => {
-    const res = await fetch("/api/github?action=repos");
-    if (!res.ok) throw new Error((await res.json()).error);
-    return res.json();
-  },
   getPRs: async (owner: string, repo: string): Promise<GitHubPR[]> => {
     const res = await fetch(`/api/github?action=prs&owner=${owner}&repo=${repo}`);
     if (!res.ok) throw new Error((await res.json()).error);
@@ -42,6 +29,15 @@ const githubProxy = {
     return data.diff;
   },
 };
+
+// The graph is built for exactly one repo at one commit. Parse the served repo's
+// remote so PR analysis is scoped to that same codebase — analyzing an unrelated
+// repo's diff against this graph produces confident nonsense.
+function parseGitHubRemote(remote: string): { owner: string; repo: string } | null {
+  const parts = remote.split("/").filter(Boolean);
+  if (parts.length < 3 || parts[0] !== "github.com") return null;
+  return { owner: parts[1], repo: parts[2] };
+}
 
 function riskBadge(risk: string) {
   const styles = {
@@ -152,48 +148,58 @@ function ResultsView({ result }: { result: AnalysisResult }) {
   );
 }
 
+function ServedRepoBanner({ repo }: { repo: RepoInfo }) {
+  return (
+    <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+      <span>Graph indexed for</span>
+      <span className="font-mono text-foreground">{repo.remote || repo.root_path || "local repo"}</span>
+      {repo.commit && (
+        <span className="font-mono px-1.5 py-0.5 rounded bg-muted">{repo.commit.slice(0, 7)}</span>
+      )}
+    </div>
+  );
+}
+
+type Mode = "github" | "local" | "paste";
+
 export default function AnalyzePage() {
   const { data: session } = useSession();
-  const [mode, setMode] = useState<"github" | "paste">("github");
-  const [selectedRepo, setSelectedRepo] = useState("");
+  const [mode, setMode] = useState<Mode>("github");
   const [selectedPR, setSelectedPR] = useState<number | null>(null);
   const [diff, setDiff] = useState("");
 
   const isLoggedIn = !!session?.user;
 
-  // Fetch repos via server-side proxy
-  const { data: repos } = useQuery({
-    queryKey: ["github-repos"],
-    queryFn: () => githubProxy.getRepos(),
-    enabled: isLoggedIn,
-  });
+  // The repo + revision the served graph was built from. PR analysis is scoped
+  // to this repo so the diff and the graph always describe the same code.
+  const { data: repoInfo } = useQuery({ queryKey: ["repo"], queryFn: () => api.getRepo() });
+  const servedGh = repoInfo?.remote ? parseGitHubRemote(repoInfo.remote) : null;
 
-  // Parse owner/repo
-  const [repoOwner, repoName] = selectedRepo.split("/");
-
-  // Fetch PRs for selected repo
+  // Fetch PRs for the served repo only.
   const { data: prs, isLoading: prsLoading } = useQuery({
-    queryKey: ["github-prs", selectedRepo],
-    queryFn: () => githubProxy.getPRs(repoOwner, repoName),
-    enabled: !!selectedRepo && isLoggedIn,
+    queryKey: ["github-prs", servedGh?.owner, servedGh?.repo],
+    queryFn: () => githubProxy.getPRs(servedGh!.owner, servedGh!.repo),
+    enabled: isLoggedIn && !!servedGh,
   });
 
-  // Analyze PR mutation
   const prMutation = useMutation({
     mutationFn: async (prNumber: number) => {
-      const diffText = await githubProxy.getDiff(repoOwner, repoName, prNumber);
+      const diffText = await githubProxy.getDiff(servedGh!.owner, servedGh!.repo, prNumber);
       return api.analyze(diffText);
     },
   });
 
-  // Analyze paste mutation
+  const localMutation = useMutation({
+    mutationFn: () => api.analyzeLocal({ uncommitted: true }),
+  });
+
   const pasteMutation = useMutation({
     mutationFn: (diffText: string) => api.analyze(diffText),
   });
 
-  const result = prMutation.data || pasteMutation.data;
-  const isPending = prMutation.isPending || pasteMutation.isPending;
-  const error = prMutation.error || pasteMutation.error;
+  const result = prMutation.data || localMutation.data || pasteMutation.data;
+  const isPending = prMutation.isPending || localMutation.isPending || pasteMutation.isPending;
+  const error = prMutation.error || localMutation.error || pasteMutation.error;
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -202,6 +208,7 @@ export default function AnalyzePage() {
         <p className="text-muted-foreground text-sm mt-1">
           Compute blast radius from a pull request or diff
         </p>
+        {repoInfo && <div className="mt-2"><ServedRepoBanner repo={repoInfo} /></div>}
       </div>
 
       {/* Mode tabs */}
@@ -216,6 +223,15 @@ export default function AnalyzePage() {
           GitHub PR
         </button>
         <button
+          onClick={() => setMode("local")}
+          className={`px-4 py-1.5 rounded-md text-sm transition-colors flex items-center gap-1.5 ${
+            mode === "local" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
+          }`}
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+          Local changes
+        </button>
+        <button
           onClick={() => setMode("paste")}
           className={`px-4 py-1.5 rounded-md text-sm transition-colors ${
             mode === "paste" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
@@ -225,13 +241,23 @@ export default function AnalyzePage() {
         </button>
       </div>
 
-      {/* GitHub PR mode */}
+      {/* GitHub PR mode — scoped to the served repo */}
       {mode === "github" && (
         <div className="bg-card border border-border rounded-lg p-4 space-y-4">
-          {!isLoggedIn ? (
+          {!servedGh ? (
+            <p className="text-sm text-muted-foreground">
+              GitHub PR analysis needs the served graph to be a GitHub repository. The current graph
+              {repoInfo?.remote ? ` has remote ${repoInfo.remote}` : " has no GitHub remote"}. Re-index a
+              GitHub repo, or use <span className="font-medium text-foreground">Local changes</span> /{" "}
+              <span className="font-medium text-foreground">Paste Diff</span>.
+            </p>
+          ) : !isLoggedIn ? (
             <div className="text-center py-8 space-y-3">
               <Github className="h-10 w-10 mx-auto text-muted-foreground" />
-              <p className="text-muted-foreground">Sign in with GitHub to analyze pull requests</p>
+              <p className="text-muted-foreground">
+                Sign in with GitHub to analyze pull requests on{" "}
+                <span className="font-mono">{servedGh.owner}/{servedGh.repo}</span>
+              </p>
               <button
                 onClick={() => signIn.social({ provider: "github" })}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 inline-flex items-center gap-2"
@@ -243,34 +269,16 @@ export default function AnalyzePage() {
           ) : (
             <>
               <div className="flex flex-wrap items-end gap-4">
-                {/* Repo selector */}
+                {/* PR selector — repo is fixed to the served repo */}
                 <div className="space-y-1.5">
-                  <label className="text-sm text-muted-foreground">Repository</label>
-                  <select
-                    value={selectedRepo}
-                    onChange={(e) => {
-                      setSelectedRepo(e.target.value);
-                      setSelectedPR(null);
-                    }}
-                    className="bg-background border border-border rounded-md px-3 py-1.5 text-sm w-64"
-                  >
-                    <option value="">Select repository...</option>
-                    {repos?.map((r) => (
-                      <option key={r.id} value={r.full_name}>
-                        {r.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* PR selector */}
-                <div className="space-y-1.5">
-                  <label className="text-sm text-muted-foreground">Pull Request</label>
+                  <label className="text-sm text-muted-foreground">
+                    Pull Request on <span className="font-mono text-foreground">{servedGh.owner}/{servedGh.repo}</span>
+                  </label>
                   <select
                     value={selectedPR ?? ""}
                     onChange={(e) => setSelectedPR(e.target.value ? Number(e.target.value) : null)}
-                    disabled={!selectedRepo || prsLoading}
-                    className="bg-background border border-border rounded-md px-3 py-1.5 text-sm w-80 disabled:opacity-50"
+                    disabled={prsLoading}
+                    className="block bg-background border border-border rounded-md px-3 py-1.5 text-sm w-80 disabled:opacity-50"
                   >
                     <option value="">
                       {prsLoading ? "Loading PRs..." : "Select pull request..."}
@@ -283,7 +291,6 @@ export default function AnalyzePage() {
                   </select>
                 </div>
 
-                {/* Analyze button */}
                 <button
                   onClick={() => selectedPR && prMutation.mutate(selectedPR)}
                   disabled={!selectedPR || isPending}
@@ -307,13 +314,28 @@ export default function AnalyzePage() {
                 </div>
               )}
 
-              {!repos?.length && (
-                <p className="text-sm text-muted-foreground">
-                  No repositories found. Make sure the GitHub App is installed on your repos.
-                </p>
+              {prs && prs.length === 0 && (
+                <p className="text-sm text-muted-foreground">No open pull requests found on this repo.</p>
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Local changes mode — analyzes the served repo's own working tree */}
+      {mode === "local" && (
+        <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Analyze uncommitted changes in the repository the server was started in
+            {servedGh ? ` (${servedGh.owner}/${servedGh.repo})` : ""}.
+          </p>
+          <button
+            onClick={() => localMutation.mutate()}
+            disabled={isPending}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {localMutation.isPending ? "Analyzing..." : "Analyze uncommitted changes"}
+          </button>
         </div>
       )}
 

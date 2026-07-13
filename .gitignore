@@ -29,16 +29,21 @@ Thumbs.db
 coverage.out
 *.test
 
-# Reports
+# Reports (generated tracescope-report.html etc.), but keep checked-in docs pages
 *.html
 !web/**/*.html
+!docs/*.html
 
 # Private keys
 *.pem
 
 # Misc
-cv.tex
+cv.*
+ideas.txt
 ps.md
 TODO.md
 DIFFSCOPE_PLAN.md
 tracescope2.exe
+
+# Web build output
+web/.next/

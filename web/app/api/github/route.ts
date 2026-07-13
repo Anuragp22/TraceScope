@@ -41,7 +41,9 @@ async function githubFetch(path: string, token: string, accept = "application/vn
   return res;
 }
 
-// GET /api/github?action=repos|prs|diff&owner=...&repo=...&pr=...
+// GET /api/github?action=prs|diff&owner=...&repo=...&pr=...
+// Scoped to the served repo by the caller (see analyze/page.tsx); this route
+// only proxies read requests for a specific owner/repo the user selected.
 export async function GET(req: NextRequest) {
   const token = await getAccessToken();
   if (!token) {
@@ -52,15 +54,6 @@ export async function GET(req: NextRequest) {
 
   try {
     switch (action) {
-      case "repos": {
-        const res = await githubFetch(
-          "/user/repos?sort=pushed&per_page=30&type=all",
-          token
-        );
-        const data = await res.json();
-        return NextResponse.json(data);
-      }
-
       case "prs": {
         const owner = req.nextUrl.searchParams.get("owner");
         const repo = req.nextUrl.searchParams.get("repo");

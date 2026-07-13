@@ -228,7 +228,7 @@ internal/diff/           Unified diff parsing
 internal/analyzer/       Diff-to-function mapping, blast-radius traversal, risk scoring, hotspots
 internal/output/         Terminal, JSON, GitHub Markdown, HTML report
 internal/ownership/      Git blame and CODEOWNERS
-internal/server/         Local graph API and WebSocket server
+internal/server/         Local graph REST API (backs the optional dashboard)
 web/                     Optional dashboard frontend
 docs/                    Benchmarks and supporting notes
 ```

@@ -1,0 +1,59 @@
+name: TraceScope PR Analysis
+
+on:
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  blast-radius:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install GCC
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Install SCIP indexers
+        run: |
+          go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.6
+          npm install -g @sourcegraph/scip-typescript@0.4.0
+
+      - name: Build TraceScope
+        env:
+          CGO_ENABLED: "1"
+        run: go build -o tracescope ./cmd/tracescope
+
+      - name: Index codebase
+        env:
+          CGO_ENABLED: "1"
+        run: ./tracescope index .
+
+      - name: Analyze blast radius
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          git diff origin/${{ github.base_ref }}...HEAD | ./tracescope analyze --github-comment --owners --top 15
+          code=${PIPESTATUS[1]}
+          echo "tracescope exit code: $code"
+          # Exit-code contract (internal/cmd/exit.go): 0 ok, 1 HIGH risk,
+          # 2 MEDIUM risk, 3 tool failure. Block the PR on HIGH or a tool
+          # failure; let MEDIUM through as advisory (the comment still posts).
+          if [ "$code" = "1" ] || [ "$code" = "3" ]; then
+            exit "$code"
+          fi
+          exit 0

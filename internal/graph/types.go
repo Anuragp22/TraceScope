@@ -96,9 +96,14 @@ type IndexerStatus struct {
 
 // GraphData is the serializable representation of the full dependency graph.
 type GraphData struct {
-	Nodes            []Node                   `json:"nodes"`
-	Edges            []Edge                   `json:"edges"`
-	RootPath         string                   `json:"root_path,omitempty"`
+	Nodes    []Node `json:"nodes"`
+	Edges    []Edge `json:"edges"`
+	RootPath string `json:"root_path,omitempty"`
+	// Commit is the git HEAD the graph was indexed at; RepoRemote is the
+	// normalized origin URL. Together they bind the graph to a specific repo
+	// revision so analysis can detect a stale graph or a mismatched repo.
+	Commit           string                   `json:"commit,omitempty"`
+	RepoRemote       string                   `json:"repo_remote,omitempty"`
 	IndexSource      string                   `json:"index_source,omitempty"`
 	IndexerStatuses  []IndexerStatus          `json:"indexer_statuses,omitempty"`
 	FileMetadata     map[string]*FileMetadata `json:"file_metadata,omitempty"`
