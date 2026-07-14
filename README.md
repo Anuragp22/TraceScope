@@ -61,7 +61,9 @@ flowchart LR
 - **SCIP-first indexing** for Go via `scip-go`, with a tree-sitter parser fallback
 - **Dependency graph model** of files, functions, classes, imports, calls, and inheritance
 - **Blast-radius analysis** from changed functions to downstream impacted functions
-- **Risk ranking** based on call depth, caller fan-in, exports, and propagation
+- **Risk ranking** based on call depth, caller fan-in, exports, and propagation —
+  and honestly measured against a repo's revert/fix history (`tracescope eval`; see
+  [docs/EVALUATION.md](docs/EVALUATION.md))
 - **Why-path explanations** for how a changed symbol reaches an affected symbol
 - **Confidence diagnostics** for exact, heuristic, ambiguous, and unresolved edges
 - **Ownership hints** from git blame and CODEOWNERS
@@ -166,6 +168,18 @@ tracescope validate-scip .
 
 This compares a SCIP graph against the parser fallback graph and reports shared, missing,
 and extra node/edge signatures.
+
+### Evaluate the risk ranking
+
+```bash
+tracescope eval --repo . --max 300 --window 30 --out eval.json
+```
+
+Replays the analysis over a repo's history, labels each commit by whether it was later
+reverted or hot-fixed, and reports whether the risk ranking sorts the bad commits above a
+random and a churn baseline (AUC, Precision@k, IFA). See
+[docs/EVALUATION.md](docs/EVALUATION.md) for the methodology and an honest reading of the
+numbers. Requires `git` on `PATH`.
 
 ## GitHub Actions
 

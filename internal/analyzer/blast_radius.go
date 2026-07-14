@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/anurag/tracescope/internal/diff"
@@ -164,13 +165,13 @@ func (a *BlastRadiusAnalyzer) Analyze(changedFiles []diff.ChangedFile) *Analysis
 		depth := br.Depth[id]
 		count := callerCount[id]
 		prodCount := prodCallerCount[id]
-		risk, reason := a.scorer.Score(node, count, depth, prodCount)
+		risk, reason := a.scorer.Score(node, depth, prodCount)
 
 		result.AffectedFunctions = append(result.AffectedFunctions, AffectedFunction{
 			Node:        node,
 			Depth:       depth,
 			Risk:        risk,
-			ReviewScore: computeReviewScore(node, risk, br.Confidence[id], count, prodCount, depth),
+			ReviewScore: computeReviewScore(node, risk, br.Confidence[id], prodCount, depth),
 			Confidence:  br.Confidence[id],
 			CallerCount: count,
 			Reason:      reason,
@@ -239,7 +240,23 @@ func riskOrder(r RiskLevel) int {
 	return 3
 }
 
-func computeReviewScore(node *graph.Node, risk RiskLevel, confidence graph.EdgeConfidence, callerCount, prodCallerCount, depth int) int {
+// callerGranularityWeight scales the log1p caller term. Chosen so that within a
+// tier the spread (~0 at 0 callers up to ~50 at 600) refines ordering without a
+// single hub crossing into the next tier's base band (tiers are 30 apart).
+const callerGranularityWeight = 8.0
+
+// computeReviewScore turns a scored affected function into an integer ranking key.
+//
+// It is deliberately NOT a re-derivation of the risk tier. The tier base
+// (80/50/20) already encodes the coarse category, which the ladder derives from
+// production caller count and export status. Two mistakes the previous version
+// made — re-adding a linear caller bonus and a separate +10 for exported — double
+// counted that same evidence, and the linear bonus saturated so a 6- and a
+// 600-caller function tied. Here the tier base carries the category; a log1p
+// caller term adds *within-tier* granularity (uncapped, sub-linear); and only
+// signals orthogonal to the tier — impact proximity, whether the node itself is
+// test code, and path confidence — adjust the score further.
+func computeReviewScore(node *graph.Node, risk RiskLevel, confidence graph.EdgeConfidence, prodCallerCount, depth int) int {
 	score := 0
 	switch risk {
 	case RiskHigh:
@@ -250,40 +267,31 @@ func computeReviewScore(node *graph.Node, risk RiskLevel, confidence graph.EdgeC
 		score += 20
 	}
 
-	score += minInt(prodCallerCount*4, 24)
-	score += minInt(callerCount*2, 12)
+	// Within-tier granularity. Only production callers count — a function called
+	// widely from tests is not a review priority. log1p keeps growing so 600
+	// callers outranks 6, but sub-linearly so no single hub dominates.
+	score += int(math.Round(callerGranularityWeight * math.Log1p(float64(prodCallerCount))))
 
-	if node.IsExport {
-		score += 10
-	}
+	// Orthogonal signals the tier does not encode.
 	if !node.IsTest {
-		score += 6
+		score += 6 // a test function in the blast radius is a lower review priority
 	}
-
 	switch {
 	case depth <= 1:
-		score += 12
+		score += 12 // a direct dependency is closer to the change
 	case depth == 2:
 		score += 6
 	case depth >= 4:
-		score -= 4
+		score -= 4 // far-away impact is weaker evidence
 	}
-
 	if confidence == graph.EdgeConfidenceHeuristic {
-		score -= 8
+		score -= 8 // a heuristic path is less trustworthy than an exact one
 	}
 
 	if score < 0 {
 		return 0
 	}
 	return score
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // buildCallerCountMaps counts total and production (non-test) callers for each function.

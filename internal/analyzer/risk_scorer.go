@@ -37,7 +37,7 @@ func (s *RiskScorer) mediumCallers() int {
 
 // Score assigns a risk level to a function node based on its properties.
 // It considers production caller count (excluding test callers) and BFS depth.
-func (s *RiskScorer) Score(node *graph.Node, callerCount int, depth int, prodCallerCount int) (RiskLevel, string) {
+func (s *RiskScorer) Score(node *graph.Node, depth int, prodCallerCount int) (RiskLevel, string) {
 	effectiveCallers := prodCallerCount
 
 	// HIGH: many production callers (highly connected)
