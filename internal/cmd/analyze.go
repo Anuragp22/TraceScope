@@ -175,12 +175,16 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		output.PrintAnalysis(result)
 	}
 
-	// Post GitHub comment if requested
+	// Post GitHub comment if requested. A failure here must NOT mask the risk
+	// signal: the exit code is the CI contract, the comment is a side effect. So
+	// degrade gracefully (a transient gh/API hiccup shouldn't read as "the tool
+	// failed" and block a merge) and let the risk-based exit code below stand.
 	if githubComment {
 		if err := output.PostGitHubComment(result); err != nil {
-			return fmt.Errorf("GitHub comment: %w", err)
+			log.Warn().Err(err).Msg("failed to post GitHub comment; continuing")
+		} else {
+			fmt.Fprintln(os.Stderr, "  Posted blast radius comment to PR.")
 		}
-		fmt.Fprintln(os.Stderr, "  Posted blast radius comment to PR.")
 	}
 
 	// Exit with risk-based code
