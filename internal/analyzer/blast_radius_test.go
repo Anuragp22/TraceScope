@@ -1,11 +1,65 @@
 package analyzer
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/anurag/tracescope/internal/diff"
 	"github.com/anurag/tracescope/internal/graph"
 )
+
+// TestBlastRadiusAnalyzer_ReviewScoreDoesNotSaturateOnCallerCount asserts that
+// two same-tier affected functions differing only in production caller count get
+// strictly different review scores. The old scoring capped the caller bonus, so a
+// 10-caller and a 60-caller HIGH function tied — the most impactful cases were
+// compressed away. The score must separate them.
+func TestBlastRadiusAnalyzer_ReviewScoreDoesNotSaturateOnCallerCount(t *testing.T) {
+	nodes := []graph.Node{
+		{ID: "file:t", Type: graph.NodeFile, Name: "t.go", FilePath: "t.go"},
+		{ID: "func:target", Type: graph.NodeFunction, Name: "target", FilePath: "t.go", StartLine: 1, EndLine: 3},
+		{ID: "func:hubSmall", Type: graph.NodeFunction, Name: "hubSmall", FilePath: "s.go", StartLine: 1, EndLine: 3},
+		{ID: "func:hubLarge", Type: graph.NodeFunction, Name: "hubLarge", FilePath: "l.go", StartLine: 1, EndLine: 3},
+	}
+	edges := []graph.Edge{
+		{Source: "file:t", Target: "func:target", Type: graph.EdgeContains},
+		{Source: "func:hubSmall", Target: "func:target", Type: graph.EdgeCalls},
+		{Source: "func:hubLarge", Target: "func:target", Type: graph.EdgeCalls},
+	}
+	addCallers := func(hub string, n int) {
+		for i := 0; i < n; i++ {
+			id := fmt.Sprintf("func:%s_c%d", hub, i)
+			nodes = append(nodes, graph.Node{ID: id, Type: graph.NodeFunction, Name: id, FilePath: hub + ".go", StartLine: i + 10, EndLine: i + 11})
+			edges = append(edges, graph.Edge{Source: id, Target: "func:" + hub, Type: graph.EdgeCalls})
+		}
+	}
+	addCallers("hubSmall", 10) // HIGH (>= 10 prod callers)
+	addCallers("hubLarge", 60) // HIGH, but far more connected
+
+	gd := &graph.GraphData{Nodes: nodes, Edges: edges}
+	result := NewBlastRadiusAnalyzer(gd, 5, nil).Analyze([]diff.ChangedFile{
+		{Path: "t.go", LineRanges: []diff.LineRange{{Start: 2, End: 2}}},
+	})
+
+	var small, large *AffectedFunction
+	for i := range result.AffectedFunctions {
+		switch result.AffectedFunctions[i].Node.Name {
+		case "hubSmall":
+			small = &result.AffectedFunctions[i]
+		case "hubLarge":
+			large = &result.AffectedFunctions[i]
+		}
+	}
+	if small == nil || large == nil {
+		t.Fatalf("expected both hubs in blast radius; got %d affected", len(result.AffectedFunctions))
+	}
+	if small.Risk != RiskHigh || large.Risk != RiskHigh {
+		t.Fatalf("expected both HIGH; got small=%s large=%s", small.Risk, large.Risk)
+	}
+	if large.ReviewScore <= small.ReviewScore {
+		t.Fatalf("caller-count saturation: hubLarge (60 callers) score %d should exceed hubSmall (10 callers) score %d",
+			large.ReviewScore, small.ReviewScore)
+	}
+}
 
 func TestBlastRadiusAnalyzer_BasicPipeline(t *testing.T) {
 	gd := &graph.GraphData{
