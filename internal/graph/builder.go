@@ -313,6 +313,18 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 
 	// ── Pass 3: Resolve calls ──
 
+	// One CALLS edge per (caller, callee) pair, not per call site. The Edge
+	// struct carries no call-site line, so a repeated call adds no information —
+	// but caller counts are derived by counting edges (analyzer.buildCallerCountMaps),
+	// so duplicates would report "11 callers" for one function calling another 11
+	// times, and could push it over the HIGH threshold on its own. The SCIP
+	// backend already dedups this way (scipGraphBuilder.addEdge), so without this
+	// the two backends disagree about risk for identical code.
+	//
+	// ResolutionStats still counts call *sites*, which is what its unresolved and
+	// ambiguous counters mean — they are a per-reference diagnostic, not an edge count.
+	callEdgeIndex := make(map[string]int) // "source->target" → index into gd.Edges
+
 	for _, fr := range results {
 		for _, call := range fr.Calls {
 			targetID, confidence, status := b.resolveCall(fr, call, funcByName, funcByQualified, importMap, fileNodeByPath, nodeMap)
@@ -351,17 +363,28 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 				callerID = fileNodeByPath[fr.FilePath]
 			}
 
+			if confidence == EdgeConfidenceHeuristic {
+				gd.ResolutionStats.HeuristicCallEdges++
+			} else {
+				gd.ResolutionStats.ExactCallEdges++
+			}
+
+			key := callerID + "->" + targetID
+			if existing, ok := callEdgeIndex[key]; ok {
+				// Already have this edge. An exact resolution anywhere is stronger
+				// evidence that the edge is real than a heuristic one, so upgrade.
+				if confidence == EdgeConfidenceExact {
+					gd.Edges[existing].Confidence = EdgeConfidenceExact
+				}
+				continue
+			}
+			callEdgeIndex[key] = len(gd.Edges)
 			gd.Edges = append(gd.Edges, Edge{
 				Source:     callerID,
 				Target:     targetID,
 				Type:       EdgeCalls,
 				Confidence: confidence,
 			})
-			if confidence == EdgeConfidenceHeuristic {
-				gd.ResolutionStats.HeuristicCallEdges++
-			} else {
-				gd.ResolutionStats.ExactCallEdges++
-			}
 		}
 	}
 
@@ -733,6 +756,18 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 			}
 		}
 	}
+	// Reaching here with a receiver means every receiver-aware strategy above
+	// failed and we are about to match on the bare name alone. That match may
+	// well be right — a same-file method call whose receiver type go/types could
+	// not infer, for instance — but it is no longer a certainty: `x.Foo()` is
+	// matching a definition of `Foo` chosen without knowing what `x` is. Report
+	// it as heuristic so the review score discounts it and the reviewer is told
+	// to check the path by hand.
+	bareConfidence := EdgeConfidenceExact
+	if call.Receiver != "" {
+		bareConfidence = EdgeConfidenceHeuristic
+	}
+
 	if ids, ok := funcByName[call.Name]; ok {
 		// Prefer same-file match
 		var sameFileMatches []string
@@ -744,7 +779,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 			}
 		}
 		if id, status := resolveUnique(sameFileMatches); id != "" {
-			return id, EdgeConfidenceExact, resolutionResolved
+			return id, bareConfidence, resolutionResolved
 		} else if status == resolutionAmbiguous {
 			return "", "", resolutionAmbiguous
 		}
@@ -760,7 +795,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 				}
 			}
 			if id, status := resolveUnique(samePackageMatches); id != "" {
-				return id, EdgeConfidenceExact, resolutionResolved
+				return id, bareConfidence, resolutionResolved
 			} else if status == resolutionAmbiguous {
 				return "", "", resolutionAmbiguous
 			}

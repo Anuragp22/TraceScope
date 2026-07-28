@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/anurag/tracescope/internal/analyzer"
 	"github.com/anurag/tracescope/internal/server"
 	"github.com/spf13/cobra"
@@ -37,13 +40,34 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
+	cwd, _ := os.Getwd()
+	graphFile := resolveServeGraphFile(cfg.GraphPath, cwd)
+
 	return server.ListenAndServe(server.Config{
-		Host: serveHost,
-		Port: servePort,
+		Host:      serveHost,
+		Port:      servePort,
+		GraphFile: graphFile,
 		Scorer: &analyzer.RiskScorer{
 			HighCallers:         cfg.Risk.HighCallers,
 			HighExportedCallers: cfg.Risk.HighExportedCallers,
 			MediumCallers:       cfg.Risk.MediumCallers,
 		},
 	})
+}
+
+// resolveServeGraphFile honours graph_path from .tracescope.yaml the same way
+// analyze, why and hotspots do via loadGraph. Without it, serve silently read
+// the default .tracescope/graph.json and ignored a configured path. An empty
+// result means "use the server's own default".
+func resolveServeGraphFile(configuredPath, cwd string) string {
+	if configuredPath == "" {
+		return ""
+	}
+	if filepath.IsAbs(configuredPath) {
+		return configuredPath
+	}
+	if cwd == "" {
+		return configuredPath
+	}
+	return filepath.Join(cwd, configuredPath)
 }

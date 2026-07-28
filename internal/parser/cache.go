@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 )
 
 // ParseCache stores FileResult objects keyed by file path for incremental indexing.
@@ -15,17 +16,36 @@ func NewParseCache() *ParseCache {
 	return &ParseCache{Results: make(map[string]*FileResult)}
 }
 
-// SaveCache writes the parse cache to disk.
+// SaveCache writes the parse cache to disk atomically.
+//
+// The temp file gets a unique name rather than a fixed path+".tmp": two indexes
+// running against the same tree would otherwise write the same temp file and
+// one would rename a half-written cache into place. graph.Store.Save already
+// works this way.
 func SaveCache(cache *ParseCache, path string) error {
 	data, err := json.Marshal(cache)
 	if err != nil {
 		return err
 	}
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".parse_cache-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // LoadCache reads the parse cache from disk. Returns empty cache if file doesn't exist.

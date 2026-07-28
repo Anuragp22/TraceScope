@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,5 +44,29 @@ func TestResolveFunction_AmbiguousQualifiedMatch(t *testing.T) {
 
 	if _, err := resolveFunction(gd, "pkg.Build"); err == nil {
 		t.Fatal("expected an ambiguity error when a qualified name matches multiple packages")
+	}
+}
+
+// TestResolveServeGraphFile pins that `serve` honours graph_path from
+// .tracescope.yaml. It previously passed no GraphFile at all, so the server
+// fell back to ./.tracescope/graph.json and silently ignored the configured
+// path that every other command respects.
+func TestResolveServeGraphFile(t *testing.T) {
+	// t.TempDir gives a genuinely absolute path on every platform — a leading
+	// slash is not absolute on Windows, which needs a volume name.
+	cwd := t.TempDir()
+
+	if got := resolveServeGraphFile("", cwd); got != "" {
+		t.Errorf("no configured path should defer to the server default, got %q", got)
+	}
+
+	want := filepath.Join(cwd, "out", "graph.json")
+	if got := resolveServeGraphFile(filepath.Join("out", "graph.json"), cwd); got != want {
+		t.Errorf("relative graph_path = %q, want %q", got, want)
+	}
+
+	abs := filepath.Join(t.TempDir(), "graph.json")
+	if got := resolveServeGraphFile(abs, cwd); got != abs {
+		t.Errorf("absolute graph_path should pass through, got %q want %q", got, abs)
 	}
 }

@@ -60,6 +60,16 @@ func (s *RiskScorer) Score(node *graph.Node, depth int, prodCallerCount int) (Ri
 		return RiskMedium, fmt.Sprintf("moderately connected (%d production callers)", effectiveCallers)
 	}
 
+	// A test with no production callers is not a review priority. This rung has
+	// to come before the export fallback below: in Go every TestXxx is an
+	// exported name, so without it every test in the blast radius is tagged
+	// MEDIUM and crowds the top of the list a reviewer is told to read first.
+	// Guarded on zero production callers so it cannot shadow any rule above,
+	// all of which require at least one.
+	if node.IsTest && effectiveCallers == 0 {
+		return RiskLow, "test function with no production callers"
+	}
+
 	if node.IsExport {
 		return RiskMedium, "exported/public function"
 	}

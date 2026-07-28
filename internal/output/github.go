@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/anurag/tracescope/internal/analyzer"
@@ -14,9 +16,32 @@ import (
 
 const commentMarker = "<!-- tracescope-blast-radius -->"
 
+// repoRelativePath renders a graph file path for a PR comment.
+//
+// Graph nodes store absolute paths from whichever machine ran `tracescope
+// index`, so printing them raw publishes that machine's directory layout into
+// a comment anyone can read. Render them relative to the working directory —
+// in CI that is the repository root — so a row reads
+// internal/analyzer/blast_radius.go:95 rather than C:\Users\...\internal\...
+//
+// A path that is not under the base keeps its absolute form: a truthful
+// absolute path beats a fragment that looks repo-relative but is not. It is
+// still slash-normalised, so Windows separators never reach the comment.
+func repoRelativePath(p, base string) string {
+	if p == "" || base == "" || !filepath.IsAbs(p) {
+		return filepath.ToSlash(p)
+	}
+	rel, err := filepath.Rel(base, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(p)
+	}
+	return filepath.ToSlash(rel)
+}
+
 // FormatMarkdownComment builds a Markdown blast radius report.
 func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 	var b strings.Builder
+	base, _ := os.Getwd()
 
 	b.WriteString(commentMarker + "\n")
 	b.WriteString("## TraceScope — Blast Radius\n\n")
@@ -45,26 +70,26 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 	if len(result.AffectedFunctions) > 0 {
 		b.WriteString("### Reviewer Focus\n\n")
 		b.WriteString("Prioritize high-score public/runtime paths first; manually inspect heuristic or ambiguous paths before merging.\n\n")
-		writeTopRisksMD(&b, result.AffectedFunctions, 5)
+		writeTopRisksMD(&b, result.AffectedFunctions, 5, base)
 	}
 
 	if len(result.ResolutionIssues) > 0 {
 		b.WriteString("### Resolution Diagnostics\n\n")
-		writeResolutionIssuesMD(&b, result.ResolutionIssues, 10)
+		writeResolutionIssuesMD(&b, result.ResolutionIssues, 10, base)
 	}
 
 	// Risk sections
 	if len(high) > 0 {
 		b.WriteString("### :red_circle: High Risk\n\n")
-		writeAffectedMD(&b, high)
+		writeAffectedMD(&b, high, base)
 	}
 	if len(medium) > 0 {
 		b.WriteString("### :yellow_circle: Medium Risk\n\n")
-		writeAffectedMD(&b, medium)
+		writeAffectedMD(&b, medium, base)
 	}
 	if len(low) > 0 {
 		b.WriteString("<details>\n<summary>:green_circle: Low Risk (" + fmt.Sprintf("%d", len(low)) + ")</summary>\n\n")
-		writeAffectedMD(&b, low)
+		writeAffectedMD(&b, low, base)
 		b.WriteString("</details>\n\n")
 	}
 
@@ -94,7 +119,7 @@ func FormatMarkdownComment(result *analyzer.AnalysisResult) string {
 	return b.String()
 }
 
-func writeAffectedMD(b *strings.Builder, funcs []analyzer.AffectedFunction) {
+func writeAffectedMD(b *strings.Builder, funcs []analyzer.AffectedFunction, base string) {
 	b.WriteString("| Function | File | Score | Callers | Depth | Confidence | Why path |\n")
 	b.WriteString("|----------|------|-------|---------|-------|------------|----------|\n")
 	for _, f := range funcs {
@@ -103,7 +128,7 @@ func writeAffectedMD(b *strings.Builder, funcs []analyzer.AffectedFunction) {
 		}
 		b.WriteString(fmt.Sprintf("| `%s` | `%s:%d` | %d | %d | %d | %s | %s |\n",
 			f.Node.Name,
-			f.Node.FilePath,
+			repoRelativePath(f.Node.FilePath, base),
 			f.Node.StartLine,
 			f.ReviewScore,
 			f.CallerCount,
@@ -115,7 +140,7 @@ func writeAffectedMD(b *strings.Builder, funcs []analyzer.AffectedFunction) {
 	b.WriteString("\n")
 }
 
-func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limit int) {
+func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limit int, base string) {
 	if limit > len(funcs) {
 		limit = len(funcs)
 	}
@@ -130,7 +155,7 @@ func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limi
 			f.ReviewScore,
 			f.Risk,
 			f.Node.Name,
-			f.Node.FilePath,
+			repoRelativePath(f.Node.FilePath, base),
 			f.Node.StartLine,
 			formatOwnerMD(f.LastAuthor),
 			formatConfidence(f.Confidence),
@@ -142,7 +167,7 @@ func writeTopRisksMD(b *strings.Builder, funcs []analyzer.AffectedFunction, limi
 	b.WriteString("\n")
 }
 
-func writeResolutionIssuesMD(b *strings.Builder, issues []graph.ResolutionIssue, limit int) {
+func writeResolutionIssuesMD(b *strings.Builder, issues []graph.ResolutionIssue, limit int, base string) {
 	if limit > len(issues) {
 		limit = len(issues)
 	}
@@ -150,9 +175,9 @@ func writeResolutionIssuesMD(b *strings.Builder, issues []graph.ResolutionIssue,
 	b.WriteString("|--------|------|----------|--------|----------|--------|\n")
 	for i := 0; i < limit; i++ {
 		issue := issues[i]
-		location := issue.FilePath
+		location := repoRelativePath(issue.FilePath, base)
 		if issue.Line > 0 {
-			location = fmt.Sprintf("%s:%d", issue.FilePath, issue.Line)
+			location = fmt.Sprintf("%s:%d", repoRelativePath(issue.FilePath, base), issue.Line)
 		}
 		if location == "" {
 			location = "-"

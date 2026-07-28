@@ -64,6 +64,15 @@ func (p *PythonParser) walk(node *sitter.Node, source []byte, result *FileResult
 
 	case "class_definition":
 		name := findChildContent(node, "identifier", source)
+		if name == "" {
+			// No usable class name, but the body still contains calls. Walking on
+			// without class context is far better than returning and dropping
+			// every call inside the class.
+			for i := 0; i < int(node.ChildCount()); i++ {
+				p.walk(node.Child(i), source, result, currentClass)
+			}
+			return
+		}
 		if name != "" {
 			var bases []string
 			for i := 0; i < int(node.ChildCount()); i++ {

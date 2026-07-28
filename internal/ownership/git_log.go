@@ -72,8 +72,9 @@ func gitLogLastAuthor(repoRoot, filePath string) *FileAuthorInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// git log -1 --format="%an|%ae|%aI" -- <filepath>
-	cmd := exec.CommandContext(ctx, "git", "log", "-1", "--format=%an|%ae|%aI", "--", filePath)
+	// Separate fields with 0x1f rather than "|": an author name may legitimately
+	// contain a pipe, which shifted every later field and left the date unparseable.
+	cmd := exec.CommandContext(ctx, "git", "log", "-1", "--format=%an\x1f%ae\x1f%aI", "--", filePath)
 	cmd.Dir = repoRoot
 
 	out, err := cmd.Output()
@@ -86,18 +87,17 @@ func gitLogLastAuthor(repoRoot, filePath string) *FileAuthorInfo {
 		return nil
 	}
 
-	parts := strings.SplitN(line, "|", 3)
+	parts := strings.SplitN(line, "\x1f", 3)
 	if len(parts) != 3 {
 		return nil
 	}
 
+	// %aI is strict ISO-8601, which is RFC3339. A parse failure means the field
+	// was not a date at all, so leave the zero time — RelativeTime renders it
+	// as "unknown" rather than inventing a timestamp.
 	modified, err := time.Parse(time.RFC3339, strings.TrimSpace(parts[2]))
 	if err != nil {
-		// Try alternate format
-		modified, err = time.Parse("2006-01-02T15:04:05-07:00", strings.TrimSpace(parts[2]))
-		if err != nil {
-			modified = time.Time{}
-		}
+		modified = time.Time{}
 	}
 
 	return &FileAuthorInfo{
