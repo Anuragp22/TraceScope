@@ -369,3 +369,74 @@ func TestBuildFromSCIP_RefinesGoFunctionBounds(t *testing.T) {
 			"not to Target (refined bounds let enclosingSCIPScopeID reject it)")
 	}
 }
+
+// TestBuilder_DeduplicatesCallEdges pins one CALLS edge per (caller, callee)
+// pair rather than one per call site. Caller counts are derived by counting
+// edges, so duplicates report a single caller as many, which can push a
+// function over the HIGH threshold by itself. The SCIP backend already dedups
+// (scipGraphBuilder.addEdge); without this the two backends disagree about risk
+// for identical code.
+func TestBuilder_DeduplicatesCallEdges(t *testing.T) {
+	fr := &parser.FileResult{
+		FilePath: "/repo/a.go",
+		Language: parser.LangGo,
+		Package:  "a",
+		Functions: []parser.FunctionDef{
+			{Name: "caller", StartLine: 1, EndLine: 10},
+			{Name: "target", StartLine: 12, EndLine: 14},
+		},
+		Calls: []parser.FunctionCall{
+			{Name: "target", Line: 2},
+			{Name: "target", Line: 3},
+			{Name: "target", Line: 4},
+		},
+	}
+	gd := NewBuilder().Build([]*parser.FileResult{fr})
+
+	var targetID string
+	for _, n := range gd.Nodes {
+		if n.Name == "target" {
+			targetID = n.ID
+		}
+	}
+	edges := 0
+	for _, e := range gd.Edges {
+		if e.Type == EdgeCalls && e.Target == targetID {
+			edges++
+		}
+	}
+	if edges != 1 {
+		t.Errorf("expected 1 CALLS edge from a single caller, got %d — caller counts would be inflated", edges)
+	}
+
+	// The per-call-site diagnostic must still count every reference: three call
+	// sites resolved, even though they collapse to one edge.
+	if gd.ResolutionStats.ExactCallEdges != 3 {
+		t.Errorf("expected 3 resolved call sites in ResolutionStats, got %d", gd.ResolutionStats.ExactCallEdges)
+	}
+}
+
+// TestBuilder_CallEdgeConfidenceUpgrades asserts that when the same pair is
+// reached by both a heuristic and an exact resolution, the surviving edge is
+// exact — an exact resolution anywhere is stronger evidence the edge is real.
+func TestBuilder_CallEdgeConfidenceUpgrades(t *testing.T) {
+	fr := &parser.FileResult{
+		FilePath: "/repo/a.go",
+		Language: parser.LangGo,
+		Package:  "a",
+		Functions: []parser.FunctionDef{
+			{Name: "caller", StartLine: 1, EndLine: 10},
+			{Name: "target", StartLine: 12, EndLine: 14},
+		},
+		Calls: []parser.FunctionCall{
+			{Name: "target", Line: 2, Receiver: "obj"}, // heuristic path
+			{Name: "target", Line: 3},                  // exact, same file
+		},
+	}
+	gd := NewBuilder().Build([]*parser.FileResult{fr})
+	for _, e := range gd.Edges {
+		if e.Type == EdgeCalls && e.Confidence != EdgeConfidenceExact {
+			t.Errorf("expected the surviving edge to be upgraded to EXACT, got %q", e.Confidence)
+		}
+	}
+}
