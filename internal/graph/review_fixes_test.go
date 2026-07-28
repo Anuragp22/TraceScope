@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"time"
 	"testing"
 
 	"github.com/anurag/tracescope/internal/parser"
@@ -489,5 +490,32 @@ func TestBuilder_ReceiverCallIsNotExactViaBareName(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected a CALLS edge for the bare same-file call")
+	}
+}
+
+// TestBuilder_FileMetadataIsDeterministic pins that indexing identical source
+// twice produces identical metadata. FileMetadata carried a ParsedAt timestamp
+// that was written on every index and read by nothing, so two indexes of
+// unchanged code produced different graph.json bytes.
+func TestBuilder_FileMetadataIsDeterministic(t *testing.T) {
+	fr := func() *parser.FileResult {
+		return &parser.FileResult{
+			FilePath:    "/repo/a.go",
+			Language:    parser.LangGo,
+			Package:     "a",
+			ContentHash: "abc123",
+			Functions:   []parser.FunctionDef{{Name: "f", StartLine: 1, EndLine: 3}},
+		}
+	}
+	first := NewBuilder().Build([]*parser.FileResult{fr()})
+	time.Sleep(1100 * time.Millisecond) // long enough for a second-resolution stamp to move
+	second := NewBuilder().Build([]*parser.FileResult{fr()})
+
+	a, b := first.FileMetadata["/repo/a.go"], second.FileMetadata["/repo/a.go"]
+	if a == nil || b == nil {
+		t.Fatal("expected file metadata for the indexed file")
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("metadata differs between identical indexes:\n  %+v\n  %+v", a, b)
 	}
 }

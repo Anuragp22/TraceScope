@@ -2214,7 +2214,7 @@ const ACTS = [
           every pull request.</p>
           <p>Analysis takes a unified diff on stdin and nothing else. It never needs your branch, your
           remote, or a GitHub token — those are optional extras for posting a comment.</p>`,
-        limit: "The two-phase split is also the tool's main failure mode: the graph is a snapshot, and nothing forces you to refresh it. Analyse against a stale graph and line numbers have drifted, so the diff maps onto the wrong functions — quietly, with confident-looking output.",
+        limit: "The graph is a snapshot, so it can describe a revision you are no longer on. Analysis refuses to run in that case rather than reporting against drifted line numbers, but detecting it needs a git checkout: outside a repository the commit is unknown and the check cannot fire.",
         refs: ["internal/cmd/index.go:36", "internal/cmd/analyze.go:48", "internal/cmd/root.go:17"] },
       { id: "artifact", spine: "graph", t: "The artifact", h: "Everything it knows, in one JSON file",
         k: "The graph is not a database or a daemon. It is a file you can open, diff and delete.",
@@ -2235,7 +2235,7 @@ const ACTS = [
           number.</p>
           <p>Every row also carries the chain of calls that produced it, so no claim has to be taken on
           trust — you can open two files and check.</p>`,
-        limit: "The terminal output prints raw fan-in under the heading \"callers\" while the reason string next to it quotes production callers. Two different numbers, the same word, on the same line — the markdown and JSON surfaces do not have this problem.",
+        limit: "Two caller counts appear on the same line — total and production — because both are genuinely useful: one is coupling, the other is what the tier was computed from. They are labelled distinctly, but a reader still has to know why they differ.",
         refs: ["internal/output/terminal.go:163", "internal/analyzer/blast_radius.go:22", "internal/analyzer/risk_scorer.go:40"] },
       { id: "why", spine: "graph", t: "why", h: "Is there a call path between these two?",
         k: "The question you ask when a result surprises you.",
@@ -2252,7 +2252,7 @@ const ACTS = [
         why: html`<p>Coupling as a static property: inbound callers weighted double, plus outbound
           calls. Inbound is weighted higher because it is the blast radius if that function changes,
           which is the thing you actually care about.</p>`,
-        limit: "It ignores confidence completely, counting a guessed edge exactly like a compiler-verified one — which puts a known mis-resolution at the top of the list on this very repository. The command's own help text also describes a formula the code does not implement.",
+        limit: "It ignores confidence completely, counting a guessed edge exactly like a compiler-verified one — which puts a known mis-resolution at the top of the list on this very repository. Weighting inbound edges by confidence would fix the ranking; nothing does that today.",
         refs: ["internal/analyzer/hotspots.go:37", "internal/analyzer/hotspots.go:77", "internal/cmd/hotspots.go:21"] },
       { id: "visual", spine: "output", t: "report + serve", h: "The same data, for people who want to look at it",
         k: "One writes a file you can email; the other runs an API a dashboard talks to.",
@@ -2268,7 +2268,7 @@ const ACTS = [
         why: html`<p>The config file is found by walking up from the working directory, so a
           monorepo's settings apply to any subdirectory you run from. A malformed file degrades to
           defaults with a warning rather than to zero values.</p>`,
-        limit: "Only non-zero values override, so a threshold of zero cannot be expressed. The risk thresholds — the numbers that decide what fails your build — have no command-line flags at all, so tuning the gate requires committing a file.",
+        limit: "The risk thresholds — the numbers that decide what fails your build — have no command-line flags, so tuning the gate means committing a file. Out-of-range values are reported rather than applied, which is safe but means a typo silently leaves you on the defaults until you read the warning.",
         refs: ["internal/config/config.go:42", "internal/config/config.go:28", "internal/cmd/root.go:21"] }
     ]
   },
@@ -2296,7 +2296,7 @@ const ACTS = [
           that comes out.</p>
           <p><strong>GraphData</strong> pulls double duty as the on-disk format, so the wire format and
           the in-memory model cannot drift apart.</p>`,
-        limit: "Because GraphData is also the serialised artifact, every field added for internal convenience lands in the public JSON — ParsedAt is written on every index and read by nothing.",
+        limit: "Because GraphData is also the serialised artifact, every field added for internal convenience lands in the public JSON, and removing one is a breaking change for anything parsing it. The struct has to be treated as an API, not a convenience.",
         refs: ["internal/parser/parser.go FileResult", "internal/graph/types.go:98", "internal/analyzer/blast_radius.go:37"] },
       { id: "cycle", spine: "graph", t: "The cycle", h: "Where the layering had to be bought with a type hole",
         k: "The dependency graph is acyclic. One field is the reason it can be.",
@@ -2486,14 +2486,15 @@ const ACTS = [
           adding a new one on every push.</p>
           <p>Paths in the comment are rendered relative to the repository root, so a public comment
           never publishes the indexing machine's directory layout.</p>`,
-        limit: "The terminal report goes to stderr while JSON goes to stdout, so redirecting output to a file silently produces an empty file for the default format.",
+        limit: "Four renderings mean four places a field can be forgotten. Ownership reaches the terminal and the markdown comment but is absent from the HTML report, and nothing in the type system notices.",
         refs: ["internal/output/github.go:19 repoRelativePath", "github.go:273", "internal/output/terminal.go:26"] },
       { id: "exit", spine: "exit", t: "Exit code", h: "The part CI actually reads",
         k: "Everything above is advisory until it becomes a number between 0 and 3.",
         M: MechExit,
         why: html`<p>0 clean, 1 HIGH, 2 MEDIUM, 3 the tool itself failed. Keeping 3 distinct is the
           whole design: a broken invocation must never be indistinguishable from a dangerous
-          change.</p>
+          change. A graph that no longer matches HEAD exits 3 for the same reason — it is not a
+          risky change, it is an answer the tool cannot stand behind.</p>
           <p>The workflow blocks on 1 and 3, and lets 2 through as advisory.</p>`,
         limit: "One HIGH anywhere in the radius fails the build regardless of how weak the path was, and the tier is the only thing wired to the gate. A change touching 73 functions can pass while a four-line helper fails.",
         refs: ["internal/cmd/exit.go:22", "internal/analyzer/blast_radius.go:61", ".github/workflows/tracescope.yml"] }

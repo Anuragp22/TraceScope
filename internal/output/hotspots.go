@@ -13,20 +13,20 @@ import (
 func PrintHotspots(result *analyzer.HotspotsResult) {
 	cwd, _ := os.Getwd()
 
-	fmt.Fprintln(os.Stderr)
-	cyan.Fprintln(os.Stderr, "TraceScope — Hotspot Analysis")
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
+	cyan.Fprintln(reportOut, "TraceScope — Hotspot Analysis")
+	fmt.Fprintln(reportOut)
 
 	if len(result.Hotspots) == 0 {
-		dim.Fprintln(os.Stderr, "  No hotspots found.")
-		fmt.Fprintln(os.Stderr)
+		dim.Fprintln(reportOut, "  No hotspots found.")
+		fmt.Fprintln(reportOut)
 		return
 	}
 
 	// Header
-	bold.Fprintf(os.Stderr, "  %-4s %-30s %-40s %8s %8s %8s  %s\n",
+	bold.Fprintf(reportOut, "  %-4s %-30s %-40s %8s %8s %8s  %s\n",
 		"#", "Function", "File", "Inbound", "Outbound", "Coupling", "Risk")
-	dim.Fprintf(os.Stderr, "  %s\n", "────────────────────────────────────────────────────────────────────────────────────────────────────────────")
+	dim.Fprintf(reportOut, "  %s\n", "────────────────────────────────────────────────────────────────────────────────────────────────────────────")
 
 	for i, h := range result.Hotspots {
 		relPath := shortPath(h.Node.FilePath, cwd)
@@ -34,30 +34,30 @@ func PrintHotspots(result *analyzer.HotspotsResult) {
 
 		riskColor := riskColorFor(h.Risk)
 
-		fmt.Fprintf(os.Stderr, "  %-4d ", i+1)
-		riskColor.Fprintf(os.Stderr, "%-30s", truncate(h.Node.Name, 30))
-		fmt.Fprintf(os.Stderr, " ")
-		dim.Fprintf(os.Stderr, "%-40s", truncate(loc, 40))
-		fmt.Fprintf(os.Stderr, " %8d %8d %8d  ", h.InboundCallers, h.OutboundCalls, h.CouplingScore)
-		riskColor.Fprintf(os.Stderr, "%s", h.Risk)
+		fmt.Fprintf(reportOut, "  %-4d ", i+1)
+		riskColor.Fprintf(reportOut, "%-30s", truncate(h.Node.Name, 30))
+		fmt.Fprintf(reportOut, " ")
+		dim.Fprintf(reportOut, "%-40s", truncate(loc, 40))
+		fmt.Fprintf(reportOut, " %8d %8d %8d  ", h.InboundCallers, h.OutboundCalls, h.CouplingScore)
+		riskColor.Fprintf(reportOut, "%s", h.Risk)
 
 		if h.Node.IsExport {
-			dim.Fprintf(os.Stderr, " [exported]")
+			dim.Fprintf(reportOut, " [exported]")
 		}
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 	}
 
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 
 	if result.TopN > 0 && result.Total > result.TopN {
-		dim.Fprintf(os.Stderr, "  Showing top %d of %d functions with connections.\n", result.TopN, result.Total)
+		dim.Fprintf(reportOut, "  Showing top %d of %d functions with connections.\n", result.TopN, result.Total)
 	}
 
 	// Summary
-	bold.Fprintln(os.Stderr, "  Summary:")
-	fmt.Fprintf(os.Stderr, "    Graph: %d nodes, %d edges\n", result.TotalNodes, result.TotalEdges)
-	fmt.Fprintf(os.Stderr, "    Hotspots shown: %d\n", len(result.Hotspots))
-	fmt.Fprintln(os.Stderr)
+	bold.Fprintln(reportOut, "  Summary:")
+	fmt.Fprintf(reportOut, "    Graph: %d nodes, %d edges\n", result.TotalNodes, result.TotalEdges)
+	fmt.Fprintf(reportOut, "    Hotspots shown: %d\n", len(result.Hotspots))
+	fmt.Fprintln(reportOut)
 }
 
 func riskColorFor(risk analyzer.RiskLevel) *color.Color {

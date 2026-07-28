@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -57,42 +59,92 @@ func Load(dir string) (Config, string, error) {
 		return cfg, configPath, err
 	}
 
-	var fileCfg Config
+	var fileCfg fileConfig
 	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
 		return cfg, configPath, err
 	}
 
-	// Merge file values into defaults (only override non-zero values)
-	if fileCfg.MaxDepth > 0 {
-		cfg.MaxDepth = fileCfg.MaxDepth
-	}
-	if fileCfg.Format != "" {
-		cfg.Format = fileCfg.Format
-	}
-	if fileCfg.TopN > 0 {
-		cfg.TopN = fileCfg.TopN
-	}
-	if fileCfg.GraphPath != "" {
-		cfg.GraphPath = fileCfg.GraphPath
-		// Resolve relative paths against config file location
-		if !filepath.IsAbs(cfg.GraphPath) {
-			cfg.GraphPath = filepath.Join(filepath.Dir(configPath), cfg.GraphPath)
+	warnings := fileCfg.merge(&cfg, filepath.Dir(configPath))
+	return cfg, configPath, joinWarnings(warnings)
+}
+
+// fileConfig mirrors Config with pointers, so that a key written in the file is
+// distinguishable from a key left out. The previous version merged only
+// non-zero values, which meant `max_depth: 0` and `high_callers: 0` were
+// silently discarded and the user was told nothing.
+type fileConfig struct {
+	Ignore    []string  `yaml:"ignore"`
+	MaxDepth  *int      `yaml:"max_depth"`
+	Format    *string   `yaml:"format"`
+	TopN      *int      `yaml:"top"`
+	GraphPath *string   `yaml:"graph_path"`
+	Risk      *fileRisk `yaml:"risk"`
+}
+
+type fileRisk struct {
+	HighCallers         *int `yaml:"high_callers"`
+	HighExportedCallers *int `yaml:"high_exported_callers"`
+	MediumCallers       *int `yaml:"medium_callers"`
+}
+
+// merge applies the file over the defaults, returning a message for every key
+// that was present but unusable. Out-of-range values keep the default rather
+// than taking effect, but the caller is told which ones and why.
+func (f fileConfig) merge(cfg *Config, configDir string) []string {
+	var warn []string
+
+	atLeast := func(name string, v *int, min int, dst *int) {
+		if v == nil {
+			return
 		}
-	}
-	if len(fileCfg.Ignore) > 0 {
-		cfg.Ignore = fileCfg.Ignore
-	}
-	if fileCfg.Risk.HighCallers > 0 {
-		cfg.Risk.HighCallers = fileCfg.Risk.HighCallers
-	}
-	if fileCfg.Risk.HighExportedCallers > 0 {
-		cfg.Risk.HighExportedCallers = fileCfg.Risk.HighExportedCallers
-	}
-	if fileCfg.Risk.MediumCallers > 0 {
-		cfg.Risk.MediumCallers = fileCfg.Risk.MediumCallers
+		if *v < min {
+			warn = append(warn, fmt.Sprintf("%s: %d is below the minimum of %d; keeping %d", name, *v, min, *dst))
+			return
+		}
+		*dst = *v
 	}
 
-	return cfg, configPath, nil
+	atLeast("max_depth", f.MaxDepth, 1, &cfg.MaxDepth)
+	atLeast("top", f.TopN, 0, &cfg.TopN) // 0 is meaningful here: show everything
+
+	if f.Format != nil {
+		switch *f.Format {
+		case "terminal", "json":
+			cfg.Format = *f.Format
+		default:
+			warn = append(warn, fmt.Sprintf("format: %q is not one of terminal, json; keeping %q", *f.Format, cfg.Format))
+		}
+	}
+
+	if f.GraphPath != nil && *f.GraphPath != "" {
+		p := *f.GraphPath
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(configDir, p)
+		}
+		cfg.GraphPath = p
+	}
+
+	if len(f.Ignore) > 0 {
+		cfg.Ignore = f.Ignore
+	}
+
+	if f.Risk != nil {
+		// A threshold of 0 would classify every affected function as HIGH, which
+		// is a configuration nobody wants and every typo produces. 1 is the
+		// strictest useful value: any production caller at all.
+		atLeast("risk.high_callers", f.Risk.HighCallers, 1, &cfg.Risk.HighCallers)
+		atLeast("risk.high_exported_callers", f.Risk.HighExportedCallers, 1, &cfg.Risk.HighExportedCallers)
+		atLeast("risk.medium_callers", f.Risk.MediumCallers, 1, &cfg.Risk.MediumCallers)
+	}
+
+	return warn
+}
+
+func joinWarnings(w []string) error {
+	if len(w) == 0 {
+		return nil
+	}
+	return fmt.Errorf("ignored invalid config value(s): %s", strings.Join(w, "; "))
 }
 
 // findConfigFile walks up from dir looking for .tracescope.yaml or .tracescope.yml.

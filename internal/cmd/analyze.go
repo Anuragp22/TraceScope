@@ -23,6 +23,7 @@ var (
 	ignoreGlobs   string
 	githubComment bool
 	showOwners    bool
+	allowStale    bool
 )
 
 var analyzeCmd = &cobra.Command{
@@ -42,6 +43,7 @@ func init() {
 	analyzeCmd.Flags().StringVar(&ignoreGlobs, "ignore", "", "comma-separated glob patterns to exclude files (e.g., vendor/**,dist/**)")
 	analyzeCmd.Flags().BoolVar(&githubComment, "github-comment", false, "post blast radius as a GitHub PR comment (requires gh CLI)")
 	analyzeCmd.Flags().BoolVar(&showOwners, "owners", false, "show code owners and last authors for affected code")
+	analyzeCmd.Flags().BoolVar(&allowStale, "allow-stale", false, "analyze even when the graph was indexed at a different commit than HEAD")
 	rootCmd.AddCommand(analyzeCmd)
 }
 
@@ -113,14 +115,28 @@ func runAnalyze(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading graph (run 'tracescope index' first): %w", err)
 	}
 
-	// Warn if the graph was indexed at a different revision than the current
-	// HEAD. A stale graph drifts line numbers and silently mis-maps the diff.
+	// A graph built at another revision has drifted line numbers, so the diff
+	// maps onto whatever now occupies those lines. The result is not degraded,
+	// it is wrong — and wrong in a way that looks exactly like a correct answer.
+	//
+	// This used to be a warning on stderr, which in CI scrolls past unread. It
+	// now stops the run: exit code 3, the code that already means "TraceScope
+	// could not do its job", as distinct from 1 and 2 which mean "your change is
+	// risky". --allow-stale is there for the case where you know the drift does
+	// not matter and want an answer anyway.
 	if graphData.Commit != "" {
 		if head := gitHead("."); head != "" && head != graphData.Commit {
+			if !allowStale {
+				return fmt.Errorf(
+					"graph was indexed at %s but HEAD is %s — line numbers have drifted, "+
+						"so the diff would map onto the wrong functions.\n"+
+						"       Re-run 'tracescope index' to refresh it, or pass --allow-stale to analyze anyway",
+					shortSHA(graphData.Commit), shortSHA(head))
+			}
 			log.Warn().
 				Str("graph_commit", shortSHA(graphData.Commit)).
 				Str("head", shortSHA(head)).
-				Msg("graph was indexed at a different commit than HEAD; re-run 'tracescope index' for accurate line mapping")
+				Msg("analysing against a stale graph because --allow-stale was passed; line mapping may be wrong")
 		}
 	}
 

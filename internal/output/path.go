@@ -11,58 +11,60 @@ import (
 func PrintPath(result *graph.PathResult) {
 	cwd, _ := os.Getwd()
 
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 
 	if !result.Found {
-		cyan.Fprintln(os.Stderr, "TraceScope — Call Path")
-		fmt.Fprintln(os.Stderr)
-		yellow.Fprintf(os.Stderr, "  %s\n", result.Message)
-		fmt.Fprintln(os.Stderr)
+		cyan.Fprintln(reportOut, "TraceScope — Call Path")
+		fmt.Fprintln(reportOut)
+		yellow.Fprintf(reportOut, "  %s\n", result.Message)
+		fmt.Fprintln(reportOut)
 
 		if result.Source != nil {
-			dim.Fprintf(os.Stderr, "  Source: %s (%s:%d)\n",
+			dim.Fprintf(reportOut, "  Source: %s (%s:%d)\n",
 				result.Source.Name, shortPath(result.Source.FilePath, cwd), result.Source.StartLine)
 		}
 		if result.Target != nil {
-			dim.Fprintf(os.Stderr, "  Target: %s (%s:%d)\n",
+			dim.Fprintf(reportOut, "  Target: %s (%s:%d)\n",
 				result.Target.Name, shortPath(result.Target.FilePath, cwd), result.Target.StartLine)
 		}
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 		return
 	}
 
-	cyan.Fprintf(os.Stderr, "TraceScope — Call Path")
+	cyan.Fprintf(reportOut, "TraceScope — Call Path")
 	if result.Length == 0 {
-		fmt.Fprintf(os.Stderr, " (same function)\n")
+		fmt.Fprintf(reportOut, " (same function)\n")
 	} else {
-		fmt.Fprintf(os.Stderr, " (%d hop%s)\n", result.Length, plural(result.Length))
+		fmt.Fprintf(reportOut, " (%d hop%s)\n", result.Length, plural(result.Length))
 	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 
 	for i, step := range result.Path {
 		relPath := shortPath(step.Node.FilePath, cwd)
 
 		// Function name
-		fmt.Fprintf(os.Stderr, "  ")
-		bold.Fprintf(os.Stderr, "%-30s ", step.Node.Name)
-		dim.Fprintf(os.Stderr, "%s:%d", relPath, step.Node.StartLine)
+		fmt.Fprintf(reportOut, "  ")
+		bold.Fprintf(reportOut, "%-30s ", step.Node.Name)
+		dim.Fprintf(reportOut, "%s:%d", relPath, step.Node.StartLine)
 		if step.Node.Package != "" {
-			dim.Fprintf(os.Stderr, " [%s]", step.Node.Package)
+			dim.Fprintf(reportOut, " [%s]", step.Node.Package)
 		}
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 
 		// Arrow to next step
 		if i < len(result.Path)-1 {
-			dim.Fprintf(os.Stderr, "    │\n")
-			dim.Fprintf(os.Stderr, "    │ %s\n", step.EdgeType)
-			dim.Fprintf(os.Stderr, "    ▼\n")
+			dim.Fprintf(reportOut, "    │\n")
+			dim.Fprintf(reportOut, "    │ %s\n", step.EdgeType)
+			dim.Fprintf(reportOut, "    ▼\n")
 		}
 	}
 
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 }
 
 // PrintNodeMatches shows ambiguous matches for the user to disambiguate.
+// This is diagnostic, not report output: it accompanies an error, so it goes to
+// stderr and never pollutes a redirected report.
 func PrintNodeMatches(query string, matches []graph.NodeMatch) {
 	cwd, _ := os.Getwd()
 

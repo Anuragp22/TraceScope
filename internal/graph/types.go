@@ -77,10 +77,14 @@ type ResolutionIssue struct {
 }
 
 // FileMetadata stores per-file indexing metadata for incremental indexing.
+//
+// Hash is what makes an index incremental: a file whose sha256 is unchanged is
+// restored from the parse cache rather than re-parsed. There is deliberately no
+// timestamp field — one would change on every index even when nothing else did,
+// so two indexes of identical source produced different graph.json bytes.
 type FileMetadata struct {
 	Hash      string `json:"hash"`
 	Language  string `json:"language"`
-	ParsedAt  int64  `json:"parsed_at"`
 	NodeCount int    `json:"node_count"`
 }
 

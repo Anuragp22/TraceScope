@@ -18,7 +18,12 @@ var (
 var hotspotsCmd = &cobra.Command{
 	Use:           "hotspots",
 	Short:         "Show the most coupled functions in the codebase",
-	Long:          "Ranks functions by coupling score (inbound callers × outbound calls) to identify fragile code.",
+	Long: `Ranks functions by coupling score to identify fragile code.
+
+The score is (inbound callers × 2) + outbound calls. Inbound is weighted
+because it is the blast radius if the function changes. It is a weighted sum
+rather than a product so that a heavily called function with no outbound calls
+of its own does not score zero.`,
 	RunE:          runHotspots,
 	SilenceErrors: true,
 	SilenceUsage:  true,

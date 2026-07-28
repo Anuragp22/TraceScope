@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -145,5 +146,58 @@ func TestLoad_EmptyFile(t *testing.T) {
 	// Should get all defaults
 	if cfg.MaxDepth != 5 {
 		t.Errorf("expected default max_depth 5, got %d", cfg.MaxDepth)
+	}
+}
+
+// TestLoad_PresentButInvalidValuesAreReported pins that a key written in the
+// file is distinguishable from one left out. The merge previously took only
+// non-zero values, so `max_depth: 0` was discarded in silence and the user was
+// told nothing about why their setting had no effect.
+func TestLoad_PresentButInvalidValuesAreReported(t *testing.T) {
+	dir := t.TempDir()
+	body := "max_depth: 0\nformat: yaml\nrisk:\n  high_callers: 0\n"
+	if err := os.WriteFile(filepath.Join(dir, ".tracescope.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, path, err := Load(dir)
+	if path == "" {
+		t.Fatal("expected the config file to be found")
+	}
+	if err == nil {
+		t.Fatal("expected out-of-range values to be reported, got nil")
+	}
+	for _, want := range []string{"max_depth", "format", "risk.high_callers"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected %q named in the report, got: %v", want, err)
+		}
+	}
+
+	// Invalid values must not take effect — the defaults stand.
+	if cfg.MaxDepth != 5 {
+		t.Errorf("max_depth = %d, want the default 5", cfg.MaxDepth)
+	}
+	if cfg.Format != "terminal" {
+		t.Errorf("format = %q, want the default terminal", cfg.Format)
+	}
+	if cfg.Risk.HighCallers != 10 {
+		t.Errorf("risk.high_callers = %d, want the default 10", cfg.Risk.HighCallers)
+	}
+}
+
+// TestLoad_ZeroTopIsHonoured asserts the one key where zero is meaningful:
+// top: 0 means "show everything", and must be accepted rather than treated as
+// absent.
+func TestLoad_ZeroTopIsHonoured(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".tracescope.yaml"), []byte("top: 0\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, _, err := Load(dir)
+	if err != nil {
+		t.Fatalf("top: 0 should be valid, got: %v", err)
+	}
+	if cfg.TopN != 0 {
+		t.Errorf("top = %d, want 0", cfg.TopN)
 	}
 }
