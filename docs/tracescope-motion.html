@@ -1,0 +1,1689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TraceScope — the readout</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%235B48D6'/%3E%3Cpath d='M2 11h3l2-6 2 9 2-5h3' fill='none' stroke='white' stroke-width='1.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root{
+    color-scheme: light dark;
+    --paper:#EDEFF3; --panel:#F7F8FA; --line:#C9CFD9; --line-soft:#DDE2EA;
+    --ink:#0B1017; --ink-2:#3D4757; --ink-3:#6B7687;
+    --exact:#0B8570; --heuristic:#A9690B; --seed:#5B48D6; --alarm:#B83248;
+    --exact-bg:#0b857015; --heuristic-bg:#a9690b15; --seed-bg:#5b48d615; --alarm-bg:#b8324815;
+    --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --r:3px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#0A0E14; --panel:#111823; --line:#28323F; --line-soft:#1C2531;
+      --ink:#DEE5EE; --ink-2:#9FADBE; --ink-3:#6C7A8B;
+      --exact:#3ECFB4; --heuristic:#E0A93F; --seed:#9A88FF; --alarm:#FF6E85;
+      --exact-bg:#3ecfb418; --heuristic-bg:#e0a93f18; --seed-bg:#9a88ff18; --alarm-bg:#ff6e8518;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0A0E14; --panel:#111823; --line:#28323F; --line-soft:#1C2531;
+    --ink:#DEE5EE; --ink-2:#9FADBE; --ink-3:#6C7A8B;
+    --exact:#3ECFB4; --heuristic:#E0A93F; --seed:#9A88FF; --alarm:#FF6E85;
+    --exact-bg:#3ecfb418; --heuristic-bg:#e0a93f18; --seed-bg:#9a88ff18; --alarm-bg:#ff6e8518;
+  }
+  :root[data-theme="light"]{
+    --paper:#EDEFF3; --panel:#F7F8FA; --line:#C9CFD9; --line-soft:#DDE2EA;
+    --ink:#0B1017; --ink-2:#3D4757; --ink-3:#6B7687;
+    --exact:#0B8570; --heuristic:#A9690B; --seed:#5B48D6; --alarm:#B83248;
+    --exact-bg:#0b857015; --heuristic-bg:#a9690b15; --seed-bg:#5b48d615; --alarm-bg:#b8324815;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;overflow-x:hidden}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:15px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit}
+  code,kbd{font-family:var(--mono); font-size:0.88em}
+
+  .wrap{max-width:1240px;margin:0 auto;padding:0 22px}
+
+  /* ---------- progress ---------- */
+  .progress{position:fixed;top:0;left:0;right:0;height:2px;background:var(--seed);
+    transform-origin:0%;z-index:60}
+
+  /* ---------- header ---------- */
+  header{position:sticky;top:0;z-index:50;background:color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter:blur(9px);border-bottom:1px solid var(--line-soft)}
+  .bar{display:flex;align-items:center;gap:18px;height:56px}
+  .brand{font-family:var(--mono);font-weight:700;letter-spacing:-0.04em;font-size:16px;white-space:nowrap}
+  .brand span{color:var(--ink-3);font-weight:400}
+  .acts{display:flex;gap:2px;margin-left:auto;flex-wrap:wrap}
+  .act-tab{font-family:var(--mono);font-size:11.5px;letter-spacing:0.02em;padding:6px 11px;
+    border:1px solid transparent;border-radius:var(--r);background:none;color:var(--ink-3);cursor:pointer}
+  .act-tab:hover{color:var(--ink)}
+  .act-tab[aria-selected="true"]{color:var(--ink);border-color:var(--line);background:var(--panel)}
+  .theme-btn{font-family:var(--mono);font-size:11.5px;padding:6px 10px;border:1px solid var(--line);
+    border-radius:var(--r);background:none;color:var(--ink-2);cursor:pointer}
+  .theme-btn:hover{color:var(--ink)}
+
+  /* ---------- hero ---------- */
+  .hero{padding:64px 0 34px}
+  .eyebrow{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.16em;
+    color:var(--ink-3);margin:0 0 18px}
+  h1{font-family:var(--mono);font-weight:700;letter-spacing:-0.045em;line-height:1.02;
+    font-size:clamp(2.1rem,5.6vw,3.9rem);margin:0 0 20px;max-width:19ch}
+  .thesis{font-size:clamp(1rem,1.6vw,1.16rem);color:var(--ink-2);max-width:62ch;margin:0 0 30px}
+  .trace-rule{width:100%;height:1px;background:var(--line);transform-origin:0%;margin:6px 0 26px}
+
+  .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+    border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .strip div{padding:12px 14px;border-right:1px solid var(--line-soft);background:var(--panel)}
+  .strip div:last-child{border-right:none}
+  .strip b{display:block;font-family:var(--mono);font-size:19px;font-weight:700;letter-spacing:-0.03em}
+  .strip small{display:block;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
+    letter-spacing:0.1em;color:var(--ink-3);margin-top:3px}
+
+  /* ---------- glossary ---------- */
+  details.gloss{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);margin:0 0 40px}
+  details.gloss summary{cursor:pointer;padding:12px 15px;font-family:var(--mono);font-size:11.5px;
+    text-transform:uppercase;letter-spacing:0.12em;color:var(--ink-2);list-style:none}
+  details.gloss summary::-webkit-details-marker{display:none}
+  details.gloss summary::before{content:"+ ";color:var(--ink-3)}
+  details.gloss[open] summary::before{content:"– "}
+  .gloss-grid{padding:2px 15px 16px;display:grid;gap:11px;
+    grid-template-columns:repeat(auto-fit,minmax(258px,1fr))}
+  .gloss-grid dt{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--ink)}
+  .gloss-grid dd{margin:2px 0 0;font-size:13px;color:var(--ink-2);line-height:1.5}
+
+  /* ---------- controls ---------- */
+  .controls{display:flex;flex-wrap:wrap;gap:22px;padding:14px 0 20px;border-top:1px solid var(--line-soft);
+    border-bottom:1px solid var(--line-soft);margin-bottom:26px}
+  .ctl-label{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;
+    color:var(--ink-3);margin-bottom:7px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;flex-wrap:wrap}
+  .seg button{font-family:var(--mono);font-size:11.5px;padding:7px 12px;background:none;border:none;
+    border-right:1px solid var(--line-soft);color:var(--ink-3);cursor:pointer;white-space:nowrap}
+  .seg button:last-child{border-right:none}
+  .seg button:hover{color:var(--ink)}
+  .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+  .ctl-note{font-size:12px;color:var(--ink-3);max-width:40ch;align-self:end}
+
+  /* ---------- layout ---------- */
+  .layout{display:grid;grid-template-columns:214px 1fr;gap:34px;align-items:start;padding-bottom:70px}
+  @media (max-width:940px){ .layout{grid-template-columns:1fr;gap:20px} }
+
+  .rail{position:sticky;top:70px}
+  @media (max-width:940px){ .rail{position:static} }
+  .rail-title{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;
+    color:var(--ink-3);margin:0 0 10px}
+  .rail ol{list-style:none;margin:0;padding:0;max-height:none}
+  @media (max-width:940px){
+    .rail ol{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px}
+    .rail li{flex:0 0 auto}
+  }
+  .rail button{display:flex;align-items:baseline;gap:9px;width:100%;text-align:left;background:none;
+    border:none;border-left:1px solid var(--line);padding:7px 10px;color:var(--ink-3);cursor:pointer;
+    font-family:var(--mono);font-size:12px;position:relative}
+  @media (max-width:940px){
+    .rail button{border-left:none;border-bottom:1px solid var(--line);white-space:nowrap;width:auto}
+  }
+  .rail button:hover{color:var(--ink)}
+  .rail button[aria-current="true"]{color:var(--ink)}
+  .rail .n{font-size:10px;color:var(--ink-3);flex:0 0 auto}
+  .rail button[aria-current="true"] .n{color:var(--seed)}
+  .frontier{position:absolute;left:-1px;top:0;bottom:0;width:2px;background:var(--seed)}
+  @media (max-width:940px){ .frontier{left:0;right:0;top:auto;bottom:-1px;width:auto;height:2px} }
+
+  /* ---------- panel ---------- */
+  .panel{min-width:0}
+  .stage-head{margin:0 0 4px;font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;
+    text-transform:uppercase;color:var(--ink-3)}
+  .act-head{margin:0 0 22px;padding-top:22px;border-top:1px solid var(--line-soft);color:var(--ink-2)}
+  .stage-title{font-family:var(--mono);font-weight:700;letter-spacing:-0.035em;
+    font-size:clamp(1.35rem,2.7vw,1.95rem);margin:0 0 8px;line-height:1.15}
+  .stage-kicker{color:var(--ink-2);margin:0 0 24px;max-width:70ch}
+
+  .cols{display:grid;grid-template-columns:1fr 330px;gap:26px;align-items:start}
+  @media (max-width:1080px){ .cols{grid-template-columns:1fr} }
+
+  .mech{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:18px;
+    min-height:280px;min-width:0}
+  .why{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:17px 18px}
+  .why h4{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:0.13em;
+    color:var(--ink-3);margin:0 0 10px;font-weight:400}
+  .why p{margin:0 0 12px;font-size:13.5px;color:var(--ink-2);line-height:1.62}
+  .why p:last-of-type{margin-bottom:14px}
+  .why strong{color:var(--ink);font-weight:600}
+  .limit{border-left:2px solid var(--alarm);background:var(--alarm-bg);padding:10px 12px;
+    border-radius:0 var(--r) var(--r) 0}
+  .limit b{display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;
+    letter-spacing:0.13em;color:var(--alarm);margin-bottom:5px}
+  .limit span{font-size:12.8px;color:var(--ink-2);line-height:1.55}
+
+  .refs{margin-top:16px;display:flex;flex-wrap:wrap;gap:6px}
+  .ref{font-family:var(--mono);font-size:10.5px;padding:3px 7px;border:1px solid var(--line);
+    border-radius:var(--r);color:var(--ink-3);background:var(--paper)}
+
+  .scale{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+    border-top:1px dashed var(--line);padding-top:9px;line-height:1.5}
+
+  /* ---------- mechanism atoms ---------- */
+  .scroll-x{overflow-x:auto;max-width:100%}
+  .node{font-family:var(--mono);font-size:11.5px;padding:5px 9px;border:1px solid var(--line);
+    border-radius:var(--r);background:var(--paper);display:inline-flex;align-items:center;gap:7px;
+    white-space:nowrap}
+  .node.seed{border-color:var(--seed);color:var(--seed);background:var(--seed-bg)}
+  .node.exact{border-color:var(--exact);color:var(--exact);background:var(--exact-bg)}
+  .node.heur{border-color:var(--heuristic);color:var(--heuristic);background:var(--heuristic-bg)}
+  .node.dead{opacity:0.42;text-decoration:line-through}
+  .row{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .stack{display:flex;flex-direction:column;gap:7px}
+  .tag{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.09em;
+    padding:2px 5px;border-radius:2px;border:1px solid currentColor}
+  .t-exact{color:var(--exact)} .t-heur{color:var(--heuristic)}
+  .t-high{color:var(--alarm)} .t-med{color:var(--heuristic)} .t-low{color:var(--ink-3)}
+  .lbl{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.12em;
+    color:var(--ink-3);margin:0 0 8px}
+  .lbl.mt{margin-top:18px}
+  pre.code{font-family:var(--mono);font-size:11.5px;line-height:1.6;margin:0;padding:12px;
+    background:var(--paper);border:1px solid var(--line-soft);border-radius:var(--r);
+    overflow-x:auto;color:var(--ink-2);white-space:pre}
+  pre.code b{color:var(--ink);font-weight:600}
+  pre.code i{color:var(--ink-3);font-style:normal}
+  pre.code u{color:var(--exact);text-decoration:none}
+  pre.code s{color:var(--alarm);text-decoration:none}
+
+  table.data{border-collapse:collapse;font-family:var(--mono);font-size:11.5px;width:100%;min-width:520px}
+  table.data th{text-align:left;font-weight:400;color:var(--ink-3);text-transform:uppercase;
+    font-size:9.5px;letter-spacing:0.1em;padding:5px 9px 5px 0;border-bottom:1px solid var(--line)}
+  table.data td{padding:6px 9px 6px 0;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  table.data tr:last-child td{border-bottom:none}
+  table.data td.num{text-align:right;padding-right:14px}
+  .bar-cell{display:inline-block;height:6px;background:var(--seed);border-radius:1px;vertical-align:middle}
+
+  .callout{font-family:var(--mono);font-size:11.5px;padding:9px 11px;border-radius:var(--r);
+    border:1px solid var(--line);background:var(--paper);color:var(--ink-2);line-height:1.55}
+  .callout.warn{border-color:var(--heuristic);background:var(--heuristic-bg);color:var(--heuristic)}
+  .callout.bad{border-color:var(--alarm);background:var(--alarm-bg);color:var(--alarm)}
+  .callout.good{border-color:var(--exact);background:var(--exact-bg);color:var(--exact)}
+
+  footer{border-top:1px solid var(--line-soft);padding:26px 0 60px;color:var(--ink-3);font-size:12.5px}
+  footer p{margin:0 0 8px;max-width:76ch}
+
+  #boot{padding:40px 22px;font-family:var(--mono);font-size:13px;line-height:1.7;max-width:70ch}
+  #boot h2{font-size:15px;margin:0 0 12px}
+  #boot ul{padding-left:18px}
+  #boot code{background:var(--panel);padding:1px 4px;border-radius:2px}
+
+  :focus-visible{outline:2px solid var(--seed);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:0.01ms !important;transition-duration:0.01ms !important} }
+</style>
+</head>
+<body>
+
+<div id="boot">
+  <h2>Loading the walkthrough…</h2>
+  <p>This page pulls React, Framer Motion and htm from esm.sh as ES modules. If this message is still
+  here after a few seconds, the module graph did not evaluate.</p>
+  <ul>
+    <li>Serve the folder over HTTP — <code>python -m http.server</code> — module scripts do not run from <code>file://</code>.</li>
+    <li>Check the browser console for the first failing import.</li>
+    <li>Confirm <code>esm.sh</code> is reachable from this network.</li>
+  </ul>
+</div>
+
+<div id="root"></div>
+
+<script>
+  (function () {
+    var boot = document.getElementById('boot');
+    function fail(what, detail) {
+      if (!boot) return;
+      boot.innerHTML =
+        '<h2>The walkthrough failed to start</h2>' +
+        '<p><b>' + what + '</b></p>' +
+        '<pre style="white-space:pre-wrap;color:#B83248">' + String(detail).slice(0, 600) + '</pre>' +
+        '<p>Checklist:</p><ul>' +
+        '<li>Served over HTTP, not opened as a file? Module scripts need a server.</li>' +
+        '<li>Is esm.sh reachable? Every dependency loads from that host.</li>' +
+        '<li>Any content blocker or proxy stripping the importmap?</li>' +
+        '<li>Browser supports import maps? (Chrome 89+, Firefox 108+, Safari 16.4+)</li>' +
+        '</ul>';
+    }
+    window.addEventListener('error', function (e) { fail('A script error stopped the page.', e.message || e.error); });
+    window.addEventListener('unhandledrejection', function (e) { fail('A module failed to load.', (e.reason && e.reason.message) || e.reason); });
+  })();
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "framer-motion": "https://esm.sh/framer-motion@12.23.12?external=react,react-dom&deps=motion-dom@12.23.12,motion-utils@12.23.6",
+    "htm": "https://esm.sh/htm@3.1.1"
+  }
+}
+</script>
+
+<script type="module">
+import React, { useState, useMemo, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import { motion, AnimatePresence, useScroll, useSpring } from "framer-motion";
+import htm from "htm";
+
+const html = htm.bind(React.createElement);
+const M = motion.div, MS = motion.span, MOL = motion.ol, MLI = motion.li;
+const LT = "<";
+
+const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const T = (d = 0.42, delay = 0) => reduce ? { duration: 0 } : { duration: d, delay, ease: [0.22, 0.61, 0.36, 1] };
+const listV = { hidden: {}, show: { transition: { staggerChildren: reduce ? 0 : 0.06 } } };
+const itemV = { hidden: { opacity: 0, y: 7 }, show: { opacity: 1, y: 0, transition: T(0.3) } };
+
+/* ══════════════════════════════════════════════════════════════════
+   MEASURED FACTS
+   Everything below was read out of this repository. Graph counts come
+   from .tracescope/graph.json, which was indexed at commit 2c2d5e0.
+   Eval numbers come from docs/EVALUATION.md.
+   ══════════════════════════════════════════════════════════════════ */
+const G = {
+  nodes: 614, edges: 1592,
+  fn: 451, files: 90, cls: 73,
+  calls: 928, contains: 589, imports: 75,
+  exact: 1490, heuristic: 102,
+  rExact: 826, rHeur: 102, rAmb: 44, rUnres: 3059,
+  goNodes: 551, tsNodes: 63,
+  exported: 227, tests: 168,
+  commit: "2c2d5e0", head: "4dc8ac0",
+  source: "parser"
+};
+G.callSites = G.rExact + G.rHeur + G.rAmb + G.rUnres;      // 4031
+G.resolvedPct = Math.round((G.calls / G.callSites) * 1000) / 10;
+
+const EVAL = {
+  repo: "gin-gonic/gin", n: 300, positives: 59, base: 19.7, window: 30,
+  rankers: [
+    { name: "ladder", auc: 0.613, p5: 0.000, p10: 0.200, ifa: 6.0, mine: true },
+    { name: "churn", auc: 0.595, p5: 0.000, p10: 0.000, ifa: 13.0 },
+    { name: "random", auc: 0.494, p5: 0.220, p10: 0.200, ifa: 5.7 }
+  ],
+  zero: 201, zeroRisky: 29,
+  subset: { n: 99, base: 30.3, rows: [
+    { name: "max fan-in", auc: 0.541 },
+    { name: "review-score sum", auc: 0.528 },
+    { name: "churn", auc: 0.526 },
+    { name: "review score (the ladder)", auc: 0.516, mine: true }
+  ] }
+};
+
+/* Replayed against the indexed graph using the real logic in
+   graph/query.go, analyzer/risk_scorer.go and analyzer/blast_radius.go. */
+const SCENARIOS = {
+  leaf: {
+    id: "leaf", label: "Leaf helper", blurb: "a 3-line predicate nobody calls twice",
+    seed: "linesOverlap", file: "internal/analyzer/diff_mapper.go", line: 144,
+    seedProd: 1, seedExport: false, kind: "modify",
+    hunk: [
+      { t: "ctx", s: "func linesOverlap(aStart, aEnd, bStart, bEnd int) bool {" },
+      { t: "del", s: "\treturn aStart <= bEnd && bStart <= aEnd" },
+      { t: "add", s: "\treturn aStart <= bEnd && bStart <= aEnd && aEnd >= bStart" },
+      { t: "ctx", s: "}" }
+    ],
+    ranges: "144–147", affected: 19, high: 0, med: 2, low: 17, exit: 2,
+    top: [
+      { n: "Analyze", f: "internal/analyzer/blast_radius.go", l: 95, d: 2, prod: 4, raw: 11, risk: "MEDIUM", rs: 75, conf: "EXACT", why: "moderately connected (4 production callers)", path: ["linesOverlap", "MapDiffToFunctions", "Analyze"] },
+      { n: "MapDiffToFunctions", f: "internal/analyzer/diff_mapper.go", l: 19, d: 1, prod: 1, raw: 8, risk: "MEDIUM", rs: 74, conf: "EXACT", why: "direct exported dependency (1 production callers)", path: ["linesOverlap", "MapDiffToFunctions"] },
+      { n: "TestMapDiffToFunctions_BasicOverlap", f: "internal/analyzer/diff_mapper_test.go", l: 10, d: 2, prod: 0, raw: 0, risk: "LOW", rs: 26, conf: "EXACT", test: true, why: "test function with no production callers", path: ["linesOverlap", "MapDiffToFunctions", "TestMapDiffToFunctions_BasicOverlap"] }
+    ]
+  },
+  hub: {
+    id: "hub", label: "Hub helper", blurb: "21 production callers inside one file",
+    seed: "canonicalPath", file: "internal/graph/builder.go", line: 880,
+    seedProd: 21, seedExport: false, kind: "modify",
+    hunk: [
+      { t: "ctx", s: "func canonicalPath(path string) string {" },
+      { t: "del", s: "\treturn filepath.ToSlash(path)" },
+      { t: "add", s: "\treturn filepath.ToSlash(filepath.Clean(path))" },
+      { t: "ctx", s: "}" }
+    ],
+    ranges: "880–883", affected: 65, high: 0, med: 5, low: 60, exit: 2,
+    top: [
+      { n: "fileQualifier", f: "internal/graph/builder.go", l: 875, d: 1, prod: 9, raw: 9, risk: "MEDIUM", rs: 86, conf: "EXACT", why: "moderately connected (9 production callers)", path: ["canonicalPath", "fileQualifier"] },
+      { n: "Build", f: "internal/graph/builder.go", l: 34, d: 1, prod: 2, raw: 21, risk: "MEDIUM", rs: 77, conf: "EXACT", why: "direct exported dependency (2 production callers)", path: ["canonicalPath", "Build"] },
+      { n: "BuildFromSCIPFiles", f: "internal/graph/scip.go", l: 23, d: 2, prod: 3, raw: 4, risk: "MEDIUM", rs: 73, conf: "EXACT", why: "moderately connected (3 production callers)", path: ["canonicalPath", "loadSourceLines", "BuildFromSCIPFiles"] }
+    ]
+  },
+  deletion: {
+    id: "deletion", label: "Deletion only", blurb: "a hunk that removes lines and adds none",
+    seed: "mergeConfidence", file: "internal/graph/query.go", line: 125,
+    seedProd: 1, seedExport: false, kind: "delete",
+    hunk: [
+      { t: "ctx", s: "func mergeConfidence(pathConfidence, edgeConfidence EdgeConfidence) EdgeConfidence {" },
+      { t: "del", s: "\tif pathConfidence == EdgeConfidenceHeuristic || edgeConfidence == EdgeConfidenceHeuristic {" },
+      { t: "del", s: "\t\treturn EdgeConfidenceHeuristic" },
+      { t: "del", s: "\t}" },
+      { t: "ctx", s: "\treturn EdgeConfidenceExact" }
+    ],
+    ranges: "126 (zero-width anchor)", affected: 18, high: 0, med: 2, low: 16, exit: 2,
+    top: [
+      { n: "Analyze", f: "internal/analyzer/blast_radius.go", l: 95, d: 2, prod: 4, raw: 11, risk: "MEDIUM", rs: 75, conf: "EXACT", why: "moderately connected (4 production callers)", path: ["mergeConfidence", "ComputeBlastRadius", "Analyze"] },
+      { n: "ComputeBlastRadius", f: "internal/graph/query.go", l: 23, d: 1, prod: 1, raw: 8, risk: "MEDIUM", rs: 74, conf: "EXACT", why: "direct exported dependency (1 production callers)", path: ["mergeConfidence", "ComputeBlastRadius"] },
+      { n: "TestComputeBlastRadius_BoundedDepth", f: "internal/graph/query_test.go", l: 43, d: 2, prod: 0, raw: 0, risk: "LOW", rs: 26, conf: "EXACT", test: true, why: "test function with no production callers", path: ["mergeConfidence", "ComputeBlastRadius", "TestComputeBlastRadius_BoundedDepth"] }
+    ]
+  },
+  gate: {
+    id: "gate", label: "Trips the gate", blurb: "one of only two changes in this repo that reach HIGH",
+    seed: "matchPattern", file: "internal/ownership/codeowners.go", line: 128,
+    seedProd: 1, seedExport: false, kind: "modify",
+    hunk: [
+      { t: "ctx", s: "func matchPattern(pattern, filePath string) bool {" },
+      { t: "del", s: "\tpattern = filepath.ToSlash(pattern)" },
+      { t: "add", s: "\tpattern = strings.TrimSpace(filepath.ToSlash(pattern))" },
+      { t: "ctx", s: "\tfilePath = filepath.ToSlash(filePath)" }
+    ],
+    ranges: "128–131", affected: 26, high: 1, med: 3, low: 22, exit: 1,
+    top: [
+      { n: "Match", f: "internal/ownership/codeowners.go", l: 79, d: 1, prod: 6, raw: 10, risk: "HIGH", rs: 114, conf: "EXACT", why: "exported function with 6 production callers", path: ["matchPattern", "Match"] },
+      { n: "SuggestReviewers", f: "internal/ownership/codeowners.go", l: 95, d: 2, prod: 1, raw: 3, risk: "MEDIUM", rs: 68, conf: "EXACT", why: "exported/public function", path: ["matchPattern", "Match", "SuggestReviewers"] },
+      { n: "ResolveOwnership", f: "internal/ownership/ownership.go", l: 16, d: 3, prod: 3, raw: 3, risk: "MEDIUM", rs: 67, conf: "EXACT", why: "moderately connected (3 production callers)", path: ["matchPattern", "Match", "SuggestReviewers", "ResolveOwnership"] },
+      { n: "ComputeHotspots", f: "internal/analyzer/hotspots.go", l: 37, d: 3, prod: 2, raw: 8, risk: "MEDIUM", rs: 57, conf: "HEURISTIC", why: "exported/public function", path: ["matchPattern", "Match", "matchesAnyIgnore", "ComputeHotspots"] }
+    ]
+  }
+};
+
+const GLOSSARY = [
+  ["call graph", "Functions as nodes, one node calling another as a directed edge. TraceScope also keeps file nodes (CONTAINS) and type nodes (EXTENDS / IMPLEMENTS)."],
+  ["SCIP", "Sourcegraph Code Intelligence Protocol. A compiler-grade index: a real toolchain (scip-go, scip-typescript) emits every symbol with a globally unique ID, so a reference points at exactly one definition."],
+  ["tree-sitter", "An incremental parser that produces a syntax tree without a compiler. Fast and language-agnostic, but it sees only syntax — it cannot tell you which Foo a name refers to."],
+  ["blast radius", "Everything that could be affected by changing something. Here: reverse BFS from the functions your diff touched, following callers upward to a bounded depth."],
+  ["seed", "A node the diff actually changed. The BFS starts from the seed set; seeds are excluded from their own results."],
+  ["depth", "Hops from a seed. Depth 1 is a direct caller. The default bound is 5."],
+  ["fan-in", "How many call edges point at a function. High fan-in means changing it reaches a lot of code."],
+  ["production caller", "A caller that is not a test function. The scorer counts only these, so a helper called by 40 tests and 1 handler is not treated as critical."],
+  ["confidence", "EXACT or HEURISTIC, per edge. A path takes the weakest link along it: one heuristic hop makes the whole path heuristic."],
+  ["why-path", "The chain of edges from the seed to an affected function, reconstructed from the BFS parent map. It is the shortest such chain, because BFS."],
+  ["risk tier", "HIGH / MEDIUM / LOW from a fixed ladder of rules over production caller count, export status and depth."],
+  ["review score", "An integer ranking key. Tier base (80/50/20) plus a log1p caller term plus adjustments for depth, test-ness and confidence."],
+  ["hotspot", "A function ranked by static coupling alone, with no diff involved: inbound×2 + outbound."],
+  ["CODEOWNERS", "GitHub's file mapping globs to owners. Last matching rule wins. TraceScope reads it to suggest reviewers."],
+  ["AUC", "Probability a random risky commit outranks a random clean one. 0.5 is chance."],
+  ["Precision@k", "Of the top k ranked commits, the fraction that actually went wrong."],
+  ["IFA", "Initial False Alarms — the rank of the first genuinely risky commit. Lower is better."],
+  ["churn", "Added plus deleted lines. The baseline that defect-prediction papers keep warning is hard to beat."]
+];
+
+/* ══════════════════ atoms ══════════════════ */
+const Ref = ({ children }) => html`<span className="ref">${children}</span>`;
+const Refs = ({ items }) => html`<div className="refs">${items.map(r => html`<${Ref} key=${r}>${r}<//>`)}</div>`;
+const Scale = ({ children }) => html`<p className="scale">${children}</p>`;
+const Lbl = ({ children, mt }) => html`<p className=${"lbl" + (mt ? " mt" : "")}>${children}</p>`;
+
+const riskClass = r => r === "HIGH" ? "t-high" : r === "MEDIUM" ? "t-med" : "t-low";
+
+const Node = ({ kind, children, ...rest }) =>
+  html`<span className=${"node" + (kind ? " " + kind : "")} ...${rest}>${children}</span>`;
+
+const PathChain = ({ path, conf }) => html`
+  <span className="row" style=${{ gap: "5px" }}>
+    ${path.map((p, i) => html`
+      <${React.Fragment} key=${p + i}>
+        ${i > 0 && html`<span style=${{ color: conf === "HEURISTIC" ? "var(--heuristic)" : "var(--ink-3)", fontFamily: "var(--mono)", fontSize: "11px" }}>→</span>`}
+        <span className=${"node" + (i === 0 ? " seed" : "")} style=${{ fontSize: "10.5px", padding: "3px 6px" }}>${p}</span>
+      <//>`)}
+  </span>`;
+
+/* ══════════════════ ACT I mechanisms ══════════════════ */
+
+function MechWalk() {
+  const [swept, setSwept] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSwept(true), 900); return () => clearTimeout(t); }, []);
+  const entries = [
+    { n: "cmd/tracescope/", keep: true }, { n: "internal/", keep: true },
+    { n: ".github/", keep: true, note: "allow-listed dot dir" },
+    { n: "web/app/", keep: true },
+    { n: "node_modules/", keep: false }, { n: "vendor/", keep: false },
+    { n: ".git/", keep: false }, { n: ".next/", keep: false },
+    { n: "dist/", keep: false }, { n: "__pycache__/", keep: false }
+  ];
+  const shown = swept ? entries.filter(e => e.keep) : entries;
+  return html`
+    <div>
+      <${Lbl}>filepath.WalkDir — one pass, skip on the way down<//>
+      <${M} layout className="stack">
+        <${AnimatePresence} mode="popLayout">
+          ${shown.map(e => html`
+            <${M} key=${e.n} layout
+              initial=${{ opacity: 0, x: -6 }} animate=${{ opacity: 1, x: 0 }}
+              exit=${{ opacity: 0, x: 26, filter: "blur(2px)" }} transition=${T(0.34)}>
+              <span className=${"node" + (e.keep ? "" : " dead")}>
+                ${e.n}
+                ${e.note && html`<span className="tag t-exact">${e.note}</span>`}
+                ${!e.keep && html`<span className="tag t-high">SkipDir</span>`}
+              </span>
+            <//>`)}
+        <//>
+      <//>
+      <${Lbl} mt>then, by extension</${Lbl}>
+      <div className="row">
+        ${[".go", ".ts", ".tsx", ".js", ".jsx", ".py"].map(x =>
+          html`<span className="node exact" key=${x}>${x}</span>`)}
+        <span className="node dead">.min.js</span>
+      </div>
+      <${Scale}>
+        Drawing 10 of the directory entries this repo actually has. The walk resolved
+        to <b>${G.files} file nodes</b> in the committed graph
+        (${G.goNodes} Go nodes, ${G.tsNodes} TypeScript nodes).
+      <//>
+    </div>`;
+}
+
+function MechParse() {
+  const [split, setSplit] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSplit(true), 700); return () => clearTimeout(t); }, []);
+  const symbols = [
+    { s: "FunctionDef Score", k: "exact" }, { s: "FunctionDef highCallers", k: "exact" },
+    { s: "ClassDef RiskScorer", k: "exact" }, { s: "Import fmt", k: "" },
+    { s: "Call fmt.Sprintf", k: "" }, { s: "Call s.mediumCallers", k: "" }
+  ];
+  return html`
+    <div>
+      <${Lbl}>two front ends, chosen by extension<//>
+      <div className="row" style=${{ marginBottom: "16px" }}>
+        <span className="node exact">.go → go/parser + go/ast + go/types</span>
+        <span className="node heur">.ts .js .py → tree-sitter</span>
+      </div>
+      <${M} layout transition=${T(0.5)}>
+        ${!split ? html`
+          <${M} layout layoutId="src-card" className="node" style=${{ padding: "14px 16px" }}>
+            risk_scorer.go <span style=${{ color: "var(--ink-3)" }}>— 69 lines</span>
+          <//>` : html`
+          <${M} layout layoutId="src-card">
+            <${M} className="stack" variants=${listV} initial="hidden" animate="show">
+              ${symbols.map(sy => html`
+                <${M} key=${sy.s} variants=${itemV}>
+                  <span className=${"node " + sy.k}>${sy.s}</span>
+                <//>`)}
+            <//>
+          <//>`}
+      <//>
+      <${Lbl} mt>worker pool<//>
+      <div className="callout">
+        min(runtime.NumCPU(), 8) workers · files over 10 MB skipped ·
+        sha256 of the source becomes ContentHash, which is what makes the next index incremental
+      </div>
+      <${Scale}>
+        Six symbol chips stand in for one file. Across the repo the parse produced
+        <b>${G.fn} function</b>, <b>${G.cls} class</b> and <b>${G.files} file</b> nodes.
+      <//>
+    </div>`;
+}
+
+function MechScip({ source }) {
+  const scip = source === "scip";
+  const states = [
+    { n: "scip-go", st: scip ? "generated" : "missing_binary", ok: scip, why: scip ? "go.mod found" : "binary not on PATH" },
+    { n: "scip-typescript", st: scip ? "generated" : "missing_binary", ok: scip, why: scip ? "package.json found" : "binary not on PATH" },
+    { n: "scip-python", st: "skipped", ok: false, why: "disabled on native Windows" }
+  ];
+  return html`
+    <div>
+      <${Lbl}>collectSCIPIndexes — the branch, in order<//>
+      <div className="stack" style=${{ marginBottom: "16px" }}>
+        <div className="callout">1 · does index.scip already sit at the repo root? → use it, state <b>used_existing</b>, stop</div>
+        <div className="callout">2 · otherwise build a candidate per language and run each one</div>
+      </div>
+      <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${source}>
+        ${states.map(s => html`
+          <${M} key=${s.n} variants=${itemV} className="row">
+            <span className=${"node " + (s.ok ? "exact" : "")} style=${{ minWidth: "168px" }}>${s.n}</span>
+            <span className=${"tag " + (s.ok ? "t-exact" : "t-med")}>${s.st}</span>
+            <span style=${{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--ink-3)" }}>${s.why}</span>
+          <//>`)}
+      <//>
+      <${AnimatePresence} mode="wait">
+        <${M} key=${source} initial=${{ opacity: 0, y: 6 }} animate=${{ opacity: 1, y: 0 }}
+          exit=${{ opacity: 0, y: -6 }} transition=${T(0.3)} style=${{ marginTop: "16px" }}>
+          ${scip
+            ? html`<div className="callout good">Every candidate produced an index → BuildFromSCIPFiles merges them.
+                   The parser backend never runs; graph.IndexSource stays unset.</div>`
+            : html`<div className="callout warn">No indexer produced anything → fall through to the parser backend.
+                   graph.IndexSource = "parser". This is the path the committed artifact took.</div>`}
+        <//>
+      <//>
+      <${Scale}>
+        The committed <b>.tracescope/graph.json</b> in this repo was built by the
+        <b>parser</b> backend (index_source: "parser"), so this page can only quote
+        measured numbers for that path. No SCIP-built graph of this repo is checked in,
+        and inventing its node count would be a made-up number.
+      <//>
+    </div>`;
+}
+
+function MechResolve({ source }) {
+  const scip = source === "scip";
+  const rungs = [
+    { r: "receiver + static receiver type (Go, from go/types)", c: "EXACT" },
+    { r: "receiver resolved through the file's import map", c: "EXACT" },
+    { r: "bare name, same file", c: "EXACT" },
+    { r: "bare name, same package (Go)", c: "EXACT" },
+    { r: "receiver.name, no static type — a guess", c: "HEURISTIC" },
+    { r: "more than one candidate → ambiguous, edge dropped", c: "AMBIGUOUS" },
+    { r: "nothing matched → unresolved, edge dropped", c: "UNRESOLVED" }
+  ];
+  return html`
+    <div>
+      ${scip ? html`
+        <div>
+          <${Lbl}>SCIP path — no ladder at all<//>
+          <div className="callout good" style=${{ marginBottom: "14px" }}>
+            A SCIP occurrence already carries a globally unique symbol string. The builder looks it up
+            and emits the edge. Every call to addEdge in scip.go passes EdgeConfidenceExact.
+          </div>
+          <div className="callout bad">
+            Which means: in SCIP mode the tool has <b>no way to express doubt</b>. The HEURISTIC label
+            — its only honesty mechanism about edges — is unreachable. Absence of a heuristic tag is
+            not evidence of a correct graph.
+          </div>
+        </div>` : html`
+        <div>
+          <${Lbl}>resolveCall — first rung that matches wins<//>
+          <${MOL} className="stack" variants=${listV} initial="hidden" animate="show"
+            style=${{ listStyle: "none", margin: 0, padding: 0 }}>
+            ${rungs.map((x, i) => html`
+              <${MLI} key=${x.r} variants=${itemV} className="row">
+                <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "16px" }}>
+                  ${String(i + 1).padStart(2, "0")}
+                </span>
+                <span className=${"node " + (x.c === "EXACT" ? "exact" : x.c === "HEURISTIC" ? "heur" : "dead")}
+                  style=${{ whiteSpace: "normal" }}>${x.r}</span>
+              <//>`)}
+          <//>
+        </div>`}
+      <${Lbl} mt>measured on this repo (parser backend)<//>
+      <div className="scroll-x">
+        <table className="data">
+          <thead><tr><th>outcome</th><th className="num">call sites</th><th>share</th></tr></thead>
+          <tbody>
+            ${[["exact", G.rExact, "var(--exact)"], ["heuristic", G.rHeur, "var(--heuristic)"],
+               ["ambiguous — dropped", G.rAmb, "var(--ink-3)"], ["unresolved — dropped", G.rUnres, "var(--alarm)"]]
+              .map(([n, v, c]) => html`
+                <tr key=${n}>
+                  <td style=${{ color: c }}>${n}</td>
+                  <td className="num">${v.toLocaleString()}</td>
+                  <td><span className="bar-cell" style=${{ width: (v / G.callSites * 150) + "px", background: c }}/></td>
+                </tr>`)}
+          </tbody>
+        </table>
+      </div>
+      <${Scale}>
+        ${G.callSites.toLocaleString()} call sites seen · ${G.calls.toLocaleString()} CALLS edges emitted ·
+        <b>${G.resolvedPct}% resolved</b>. The graph you analyse is roughly a quarter of the call sites
+        in the source.
+      <//>
+    </div>`;
+}
+
+function MechBounds() {
+  const [wide, setWide] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setWide(true), 800); return () => clearTimeout(t); }, []);
+  return html`
+    <div>
+      <${Lbl}>refineGoFunctionBounds — scip-go gives you the name, not the body<//>
+      <pre className="code">${`  40  `}<b>func (s *RiskScorer) Score(</b>${`node *graph.Node, ...) {
+  41      effectiveCallers := prodCallerCount
+  42
+  43      if effectiveCallers >= s.highCallers() {
+  ...
+  69  }`}</pre>
+      <div style=${{ position: "relative", marginTop: "12px", height: "76px" }}>
+        <${M}
+          initial=${{ height: 12 }} animate=${{ height: wide ? 62 : 12 }} transition=${T(0.6)}
+          style=${{ border: "1px solid var(--seed)", background: "var(--seed-bg)", borderRadius: "3px",
+                    width: "100%", position: "absolute", top: 0 }} />
+        <${MS} animate=${{ opacity: 1 }}
+          style=${{ position: "absolute", top: wide ? "66px" : "16px", fontFamily: "var(--mono)",
+                    fontSize: "10.5px", color: "var(--seed)", transition: "top .5s" }}>
+          ${wide ? "StartLine 40 → EndLine 69, from go/ast" : "StartLine 40 → EndLine 40, from scip-go"}
+        <//>
+      </div>
+      <div className="callout" style=${{ marginTop: "18px" }}>
+        Why it matters: the diff mapper tests <b>line-range overlap</b>. With an identifier-only range,
+        a change on line 55 overlaps nothing — the function is silently not a seed, and its whole
+        blast radius disappears from the report.
+      </div>
+    </div>`;
+}
+
+function MechBind() {
+  return html`
+    <div>
+      <${Lbl}>storeGraph — stamp the revision, then rename into place<//>
+      <pre className="code">${`graphData.Commit     = gitHead(rootPath)
+graphData.RepoRemote = gitOriginRemote(rootPath)
+
+`}<i>// Store.Save writes .graph-*.tmp then os.Rename —</i>${`
+`}<i>// a killed index leaves the old graph intact, never a half-written one</i></pre>
+      <${Lbl} mt>right now, in this repository<//>
+      <${M} className="stack" variants=${listV} initial="hidden" animate="show">
+        <${M} variants=${itemV} className="row">
+          <span className="node">graph.commit</span><span className="node seed">${G.commit}</span>
+        <//>
+        <${M} variants=${itemV} className="row">
+          <span className="node">git HEAD</span><span className="node seed">${G.head}</span>
+        <//>
+        <${M} variants=${itemV}>
+          <div className="callout warn">
+            graph was indexed at a different commit than HEAD; re-run 'tracescope index' for accurate line mapping
+          </div>
+        <//>
+      <//>
+      <${Scale}>
+        Not a mock-up. The checked-in artifact really is bound to ${G.commit} while HEAD is ${G.head},
+        so <b>this warning fires today</b>. Every line number this page quotes from the graph is
+        therefore drifted — which is exactly the failure the stamp exists to catch.
+      <//>
+    </div>`;
+}
+
+/* ══════════════════ ACT II mechanisms ══════════════════ */
+
+function MechDiff({ sc }) {
+  const [cut, setCut] = useState(false);
+  useEffect(() => { setCut(false); const t = setTimeout(() => setCut(true), 950); return () => clearTimeout(t); }, [sc.id]);
+  const visible = cut ? sc.hunk.filter(l => l.t !== "del") : sc.hunk;
+  return html`
+    <div>
+      <${Lbl}>ParseUnifiedDiff → hunk body, line by line<//>
+      <div className="stack" style=${{ fontFamily: "var(--mono)", fontSize: "11.5px" }}>
+        <${AnimatePresence} mode="popLayout">
+          ${visible.map((l, i) => html`
+            <${M} key=${sc.id + l.s + i} layout
+              initial=${{ opacity: 0, x: -8 }} animate=${{ opacity: 1, x: 0 }}
+              exit=${{ opacity: 0, x: 34, filter: "blur(2px)" }} transition=${T(0.36)}
+              style=${{ padding: "3px 8px", borderRadius: "2px", whiteSpace: "pre", overflowX: "auto",
+                background: l.t === "add" ? "var(--exact-bg)" : l.t === "del" ? "var(--alarm-bg)" : "transparent",
+                color: l.t === "add" ? "var(--exact)" : l.t === "del" ? "var(--alarm)" : "var(--ink-2)" }}>
+              ${(l.t === "add" ? "+" : l.t === "del" ? "-" : " ") + l.s}
+            <//>`)}
+        <//>
+      </div>
+      <${Lbl} mt>changed line ranges, in new-file coordinates<//>
+      <div className="row"><span className="node seed">${sc.file}</span><span className="node">${sc.ranges}</span></div>
+      ${sc.kind === "delete" && html`
+        <div className="callout warn" style=${{ marginTop: "14px" }}>
+          Deleted lines do not exist in the new file, so the counter does not advance and a pure deletion
+          produces <b>no range at all</b>. The fix: anchor a zero-width range at the deletion point, so it
+          still overlaps the enclosing function. An addition at the same spot supersedes the anchor.
+        </div>`}
+    </div>`;
+}
+
+function MechMap({ sc }) {
+  return html`
+    <div>
+      <${Lbl}>MapDiffToFunctions — overlap, not name matching<//>
+      <pre className="code">${`func linesOverlap(aStart, aEnd, bStart, bEnd int) bool {
+    return aStart `}<b>${LT}</b>${`= bEnd && bStart `}<b>${LT}</b>${`= aEnd
+}`}</pre>
+      <${Lbl} mt>path reconciliation first<//>
+      <div className="stack">
+        <div className="callout">diff says <b>${sc.file}</b> · the graph stores absolute OS paths</div>
+        <div className="callout">matchGraphPath: exact hit, else longest <b>path-segment</b> suffix,
+          ties broken alphabetically so the answer never depends on map iteration order</div>
+        <div className="callout good">src/utils/helper.go ⊃ utils/helper.go ✓${"  "}·${"  "}
+          src/myutils/helper.go ⊅ utils/helper.go ✗ — segments, not string suffix</div>
+      </div>
+      <${Lbl} mt>result<//>
+      <div className="row">
+        <span className="node seed">${sc.seed}</span>
+        <span style=${{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--ink-3)" }}>
+          ${sc.file}:${sc.line} · ${sc.seedProd} production caller${sc.seedProd === 1 ? "" : "s"} ·
+          ${sc.seedExport ? "exported" : "unexported"}
+        </span>
+      </div>
+      <${Scale}>
+        A whole-file add or delete short-circuits the overlap test: every function in that file becomes
+        a changed function, because a deleted file's callers still need traversing.
+      <//>
+    </div>`;
+}
+
+function MechSeeds({ sc }) {
+  return html`
+    <div>
+      <${Lbl}>seed selection — function nodes win<//>
+      <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id}>
+        <${M} variants=${itemV} className="row">
+          <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "16px" }}>01</span>
+          <span className="node seed">${sc.seed}</span>
+          <span className="tag t-exact">function seed</span>
+        <//>
+        <${M} variants=${itemV} className="row">
+          <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "16px" }}>02</span>
+          <span className="node dead">file node: ${sc.file}</span>
+          <span className="tag t-med">dropped</span>
+        <//>
+      <//>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        A file node is added <b>only</b> when no function in that file matched. Otherwise the file node
+        and its functions would both seed the BFS, and everything reachable from either would be counted
+        twice — inflating the affected set and the caller counts that feed the score.
+      </div>
+      <div className="callout" style=${{ marginTop: "10px" }}>
+        Seeds are then excluded from their own results: the report answers
+        <b>what does my change reach</b>, not <b>what did I change</b>, which you already know.
+      </div>
+    </div>`;
+}
+
+function MechTraverse({ sc }) {
+  const [wave, setWave] = useState(0);
+  useEffect(() => {
+    setWave(0);
+    const t = [900, 1700, 2500].map((ms, i) => setTimeout(() => setWave(i + 1), ms));
+    return () => t.forEach(clearTimeout);
+  }, [sc.id]);
+  const d1 = sc.top.filter(t => t.d === 1);
+  const d2 = sc.top.filter(t => t.d === 2);
+  const d3 = sc.top.filter(t => t.d >= 3);
+  const levels = [
+    { d: 0, items: [{ n: sc.seed, seed: true }] },
+    { d: 1, items: d1 }, { d: 2, items: d2 }, { d: 3, items: d3 }
+  ].filter(l => l.items.length);
+  return html`
+    <div>
+      <${Lbl}>reverse BFS — who calls this?<//>
+      <div className="stack" style=${{ gap: "14px" }}>
+        ${levels.map((lv, li) => html`
+          <${M} key=${sc.id + "-" + lv.d}
+            initial=${{ opacity: 0, y: 8 }}
+            animate=${{ opacity: li <= wave ? 1 : 0.16, y: 0 }} transition=${T(0.4)}>
+            <div className="row" style=${{ alignItems: "flex-start" }}>
+              <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)",
+                              width: "52px", flex: "0 0 auto", paddingTop: "6px" }}>
+                depth ${lv.d}
+              </span>
+              <div className="row">
+                ${lv.items.map(it => html`
+                  <span key=${it.n} className=${"node " + (it.seed ? "seed" : it.conf === "HEURISTIC" ? "heur" : "exact")}>
+                    ${it.n}${it.test ? html`<span className="tag t-med">test</span>` : null}
+                  </span>`)}
+              </div>
+            </div>
+          <//>`)}
+      </div>
+      <${Lbl} mt>the loop, in code order<//>
+      <pre className="code">${`for head `}<b>${LT}</b>${` len(queue) {
+    curr := queue[head]; head++
+    `}<s>if curr.depth >= maxDepth { continue }</s>${`   `}<i>// bound checked BEFORE expanding</i>${`
+    for _, nb := range reverseAdj[curr.id] {
+        if visited[nb.source] { continue }      `}<i>// marked on enqueue, not on dequeue</i>${`
+        visited[nb.source] = true
+        ...
+    }
+}`}</pre>
+      <div className="callout" style=${{ marginTop: "14px" }}>
+        Two details that are easy to animate backwards: the depth bound is checked
+        <b>before</b> a node expands, so an over-deep frontier is never built and then trimmed;
+        and <b>visited</b> is set when a node is enqueued, so a node reached twice keeps its
+        first — therefore shortest — path.
+      </div>
+      <${Scale}>
+        Showing the top-scoring nodes per level. The full traversal for this change reached
+        <b>${sc.affected} functions</b> across the ${G.nodes}-node graph. IMPORTS edges are
+        excluded from the reverse adjacency, and CALLS edges are followed only into function
+        nodes — otherwise a shared type becomes a hub that floods the radius.
+      <//>
+    </div>`;
+}
+
+function MechScore({ sc }) {
+  return html`
+    <div>
+      <${Lbl}>the ladder — first rule that fires wins<//>
+      <div className="stack" style=${{ marginBottom: "16px" }}>
+        ${[["prod ≥ 10", "HIGH", "t-high"], ["exported && prod ≥ 5", "HIGH", "t-high"],
+           ["depth ≤ 1 && exported && prod ≥ 1", "MEDIUM", "t-med"], ["prod ≥ 3", "MEDIUM", "t-med"],
+           ["is a test && prod == 0", "LOW", "t-low"],
+           ["exported", "MEDIUM", "t-med"], ["otherwise", "LOW", "t-low"]].map(([c, r, k]) => html`
+          <div className="row" key=${c}>
+            <span className="node" style=${{ minWidth: "232px", whiteSpace: "normal" }}>${c}</span>
+            <span className=${"tag " + k}>${r}</span>
+          </div>`)}
+      </div>
+      <div className="scroll-x">
+        <table className="data">
+          <thead><tr><th>affected</th><th className="num">score</th><th>tier</th><th className="num">prod</th>
+            <th className="num">raw</th><th className="num">d</th><th>conf</th></tr></thead>
+          <tbody>
+            ${sc.top.map(t => html`
+              <tr key=${t.n}>
+                <td>${t.n}${t.test ? html`<span className="tag t-med" style=${{ marginLeft: "6px" }}>test</span>` : null}</td>
+                <td className="num"><b>${t.rs}</b></td>
+                <td><span className=${"tag " + riskClass(t.risk)}>${t.risk}</span></td>
+                <td className="num">${t.prod}</td>
+                <td className="num" style=${{ color: t.raw !== t.prod ? "var(--heuristic)" : "inherit" }}>${t.raw}</td>
+                <td className="num">${t.d}</td>
+                <td><span className=${"tag " + (t.conf === "HEURISTIC" ? "t-heur" : "t-exact")}>${t.conf.toLowerCase()}</span></td>
+              </tr>`)}
+          </tbody>
+        </table>
+      </div>
+      ${sc.id === "hub" && html`
+        <div className="callout" style=${{ marginTop: "14px" }}>
+          Look at <b>Build</b>: raw fan-in 21, production fan-in 2. Nineteen of its callers are tests.
+          Counting raw callers would have called it HIGH; counting production callers puts it at MEDIUM.
+          That gap is the whole argument for excluding test callers.
+        </div>`}
+      ${sc.top.some(t => t.test) && html`
+        <div className="callout good" style=${{ marginTop: "14px" }}>
+          The <b>is a test && prod == 0</b> rung is why that test row sits at LOW / 26 rather than
+          MEDIUM / 56. It was added after this walkthrough measured the problem: every Go TestXxx is
+          an <b>exported</b> name, so the export fallback below it used to tag every test in the blast
+          radius MEDIUM, and the 6-point test penalty in the review score was far too small to sink
+          them. Tests crowded the top of the list a reviewer is told to read first.
+        </div>`}
+    </div>`;
+}
+
+function MechWhy({ sc }) {
+  return html`
+    <div>
+      <${Lbl}>buildImpactPath — walk the BFS parent map back to the seed<//>
+      <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id} style=${{ gap: "13px" }}>
+        ${sc.top.map(t => html`
+          <${M} key=${t.n} variants=${itemV}>
+            <${PathChain} path=${t.path} conf=${t.conf} />
+            <div style=${{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "var(--ink-3)", marginTop: "4px" }}>
+              ${t.f}:${t.l} · ${t.why}
+            </div>
+          <//>`)}
+      <//>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        The path is reconstructed, not searched for. BFS already recorded a parent per node, so the chain
+        is free — and because BFS visits in depth order, it is the shortest chain, not merely a chain.
+      </div>
+      ${sc.top.some(t => t.conf === "HEURISTIC") && html`
+        <div className="callout warn" style=${{ marginTop: "10px" }}>
+          One path here is heuristic, and it is a genuine mis-resolution:
+          <b>matchesAnyIgnore</b> calls the third-party <b>doublestar.Match</b>, but the parser backend
+          had no static type for the receiver, so it fell to the last rung and matched the local
+          <b>Codeowners.Match</b>. Wrong edge — correctly labelled, and penalised 8 points.
+          A path takes the weakest confidence along it.
+        </div>`}
+    </div>`;
+}
+
+function MechOwners({ sc }) {
+  return html`
+    <div>
+      <${Lbl}>two independent lookups, both best-effort<//>
+      <div className="stack">
+        <div className="callout"><b>CODEOWNERS</b> — searched at ./CODEOWNERS, .github/CODEOWNERS, docs/CODEOWNERS.
+          Globs matched with doublestar; <b>last matching rule wins</b>, which is GitHub's semantics,
+          not first-match.</div>
+        <div className="callout"><b>git log -1</b> per file for the last author, email and date.</div>
+      </div>
+      <${Lbl} mt>reviewers are suggested for both sets of files<//>
+      <div className="row">
+        <span className="node seed">changed: ${sc.file}</span>
+        <span className="node exact">affected: ${sc.top.length} of ${sc.affected} shown</span>
+      </div>
+      <div className="callout bad" style=${{ marginTop: "16px" }}>
+        This repository has <b>no CODEOWNERS file</b>, so on this project the reviewer suggestion is
+        empty and only the git-log author survives. A missing CODEOWNERS is not an error — it returns
+        nil, and CodeownersFound stays false.
+      </div>
+      <div className="callout" style=${{ marginTop: "10px" }}>
+        Ownership is opt-in behind <b>--owners</b> because it shells out to git once per file, which
+        is the slowest thing in the pipeline.
+      </div>
+    </div>`;
+}
+
+function MechSurfaces({ sc }) {
+  const [tab, setTab] = useState("github");
+  const top = sc.top[0];
+  return html`
+    <div>
+      <div className="seg" style=${{ marginBottom: "14px" }}>
+        ${[["terminal", "terminal"], ["json", "json"], ["github", "github markdown"], ["report", "html report"]]
+          .map(([k, l]) => html`
+            <button key=${k} type="button" aria-pressed=${tab === k} onClick=${() => setTab(k)}>${l}</button>`)}
+      </div>
+      <${AnimatePresence} mode="wait">
+        <${M} key=${tab} initial=${{ opacity: 0, y: 6 }} animate=${{ opacity: 1, y: 0 }}
+          exit=${{ opacity: 0, y: -6 }} transition=${T(0.26)}>
+          ${tab === "terminal" && html`<pre className="code">${`TraceScope — blast radius
+
+  changed files      1
+  changed functions  1
+  affected functions ` + sc.affected + `
+
+  ` }<s>${sc.high + " HIGH"}</s>${`   `}<i>${sc.med + " MEDIUM"}</i>${`   ` + sc.low + ` LOW`}</pre>`}
+          ${tab === "json" && html`<pre className="code">${`{
+  "affected_functions": [
+    {
+      "node": { "name": "` + top.n + `", "file_path": "` + top.f + `" },
+      "depth": ` + top.d + `,
+      "risk": "` + top.risk + `",
+      "review_score": ` + top.rs + `,
+      "confidence": "` + top.conf + `",
+      "caller_count": ` + top.raw + `,
+      "reason": "` + top.why + `"
+    }
+  ],
+  "total_nodes": ` + G.nodes + `, "total_edges": ` + G.edges + `
+}`}</pre>`}
+          ${tab === "github" && html`
+            <pre className="code">${LT + "!-- tracescope-blast-radius -->" + `
+`}<b>${"## TraceScope — Blast Radius"}</b>${`
+
+| Metric | Value |
+|--------|-------|
+| Changed functions | 1 |
+| Affected functions | ` + sc.affected + ` |
+| Risk | ` + sc.high + ` high, ` + sc.med + ` medium, ` + sc.low + ` low |
+| Resolution confidence | ` + G.rExact + ` exact, ` + G.rHeur + ` heuristic, ` + G.rAmb + ` ambiguous skipped, ` + G.rUnres + ` unresolved |`}</pre>
+            <div className="callout" style=${{ marginTop: "12px" }}>
+              The marker comment is how the tool finds its own previous comment and
+              <b>edits it in place</b> instead of appending a new one on every push.
+            </div>`}
+          ${tab === "report" && html`
+            <div className="callout">A standalone HTML file via <b>tracescope report</b> — the same
+            AnalysisResult rendered for someone who was not at the terminal.</div>`}
+        <//>
+      <//>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        All four render the same <b>AnalysisResult</b> struct. Nothing is recomputed per surface, so
+        the terminal and the PR comment cannot disagree.
+      </div>
+    </div>`;
+}
+
+function MechExit({ sc }) {
+  const codes = [
+    { c: 0, l: "no significant risk", on: sc.exit === 0 },
+    { c: 1, l: "HIGH risk found", on: sc.exit === 1 },
+    { c: 2, l: "MEDIUM risk found", on: sc.exit === 2 },
+    { c: 3, l: "TraceScope itself failed", on: false }
+  ];
+  return html`
+    <div>
+      <${Lbl}>ResolveExit — the CI contract<//>
+      <div className="stack">
+        ${codes.map(x => html`
+          <${M} key=${x.c} animate=${{ opacity: x.on ? 1 : 0.4 }} transition=${T(0.3)} className="row">
+            <span className=${"node" + (x.on ? (x.c === 1 ? " heur" : " exact") : "")}
+              style=${{ minWidth: "42px", justifyContent: "center" }}>${x.c}</span>
+            <span style=${{ fontFamily: "var(--mono)", fontSize: "11.5px",
+                            color: x.on ? "var(--ink)" : "var(--ink-3)" }}>${x.l}</span>
+            ${x.on && html`<span className="tag t-exact">this run</span>`}
+          <//>`)}
+      </div>
+      <${Lbl} mt>what the workflow does with it<//>
+      <pre className="code">${`if [ "$code" = "1" ] || [ "$code" = "3" ]; then exit "$code"; fi
+exit 0                       `}<i>// MEDIUM is advisory — the comment still posts</i></pre>
+      <div className="callout" style=${{ marginTop: "14px" }}>
+        Code 3 exists so a broken invocation cannot be mistaken for a high-risk PR. Without it, a
+        missing graph and a dangerous change would both be "non-zero", and the gate would block for
+        the wrong reason.
+      </div>
+      <div className="callout" style=${{ marginTop: "10px" }}>
+        Posting the PR comment is deliberately <b>non-fatal</b>. The exit code is the contract; the
+        comment is a side effect. A transient gh or API hiccup logs a warning and the risk signal
+        still stands.
+      </div>
+      ${sc.exit === 2 && html`
+        <div className="callout bad" style=${{ marginTop: "14px" }}>
+          Note this change exits <b>2</b>, which the workflow lets through. Across this entire
+          repository only <b>2 of 283</b> non-test functions produce a blast radius containing a
+          HIGH — so on its own codebase, this gate almost never blocks anything.
+        </div>`}
+    </div>`;
+}
+
+/* ══════════════════ ACT III mechanisms ══════════════════ */
+
+function MechFrontends() {
+  const [which, setWhich] = useState("go");
+  return html`
+    <div>
+      <div className="seg" style=${{ marginBottom: "14px" }}>
+        <button type="button" aria-pressed=${which === "go"} onClick=${() => setWhich("go")}>go/ast + go/types</button>
+        <button type="button" aria-pressed=${which === "ts"} onClick=${() => setWhich("ts")}>tree-sitter</button>
+      </div>
+      <${AnimatePresence} mode="wait">
+        <${M} key=${which} initial=${{ opacity: 0, x: 8 }} animate=${{ opacity: 1, x: 0 }}
+          exit=${{ opacity: 0, x: -8 }} transition=${T(0.28)}>
+          ${which === "go" ? html`
+            <pre className="code">${`ast.Inspect(file, func(n ast.Node) bool {
+    call, ok := n.(*ast.CallExpr)
+    ...
+    case *ast.SelectorExpr:
+        if sel := selections[fn]; sel != nil {
+            if sel.Kind() == types.MethodVal { `}<u>${`// a real method`}</u>${`
+                call.ReceiverType, call.ReceiverPackage =
+                    goReceiverTypeInfo(sel.Recv())     `}<u>${`// EXACT`}</u>${`
+            }
+        }
+})`}</pre>
+            <div className="callout good" style=${{ marginTop: "12px" }}>
+              Go gets a type checker. <b>types.Config.Check</b> fills a Selections map, so
+              <b>x.Foo()</b> resolves to the method on x's actual type — a call edge with EXACT
+              confidence rather than a name guess.
+            </div>
+            <div className="callout warn" style=${{ marginTop: "10px" }}>
+              But the checker runs on <b>one file at a time</b> with importer.Default(), and its errors
+              are swallowed. Cross-package inference is partial, which is precisely why
+              ${G.rUnres.toLocaleString()} call sites still end up unresolved.
+            </div>` : html`
+            <pre className="code">${`parser := sitter.NewParser()
+parser.SetLanguage(lang)
+ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+tree, err := parser.ParseCtx(ctx, nil, source)
+
+`}<i>// then a hand-written walk: call_expression → name + receiver</i>${`
+`}<i>// plus inferTSVariableType / findTSConstructorType to guess a type</i></pre>
+            <div className="callout warn" style=${{ marginTop: "12px" }}>
+              Tree-sitter returns syntax, not meaning. There is no type checker, so TypeScript receiver
+              types are <b>inferred from local declarations and constructor calls</b> — good enough to
+              be useful, weak enough that its edges are the ones tagged HEURISTIC.
+            </div>
+            <div className="callout bad" style=${{ marginTop: "10px" }}>
+              The README scopes the tool to Go for a reason. TypeScript and Python are marked
+              experimental, and Python SCIP indexing is skipped outright on native Windows.
+            </div>`}
+      <//>
+      <//>
+      <${Scale}>
+        Measured split in the committed graph: <b>${G.goNodes} Go nodes</b> against
+        <b>${G.tsNodes} TypeScript nodes</b>. The Go path is the one that has been exercised.
+      <//>
+    </div>`;
+}
+
+function MechSymbols({ source }) {
+  return html`
+    <div>
+      <${Lbl}>what a SCIP symbol looks like<//>
+      <pre className="code">${`scip-go gomod github.com/anurag/tracescope v0.0.0 \`internal/analyzer\`/RiskScorer#Score().`}</pre>
+      <div className="callout" style=${{ marginTop: "12px" }}>
+        Globally unique, emitted by the compiler's own view of the program. A reference occurrence
+        carrying that string needs no guessing — the definition is looked up directly.
+      </div>
+      <${Lbl} mt>so what does "confidence" actually mean?<//>
+      <div className="scroll-x">
+        <table className="data">
+          <thead><tr><th>backend</th><th>EXACT means</th><th>HEURISTIC means</th></tr></thead>
+          <tbody>
+            <tr><td>parser</td><td style=${{ color: "var(--exact)" }}>resolved by static type, import binding, or same-file/same-package uniqueness</td>
+              <td style=${{ color: "var(--heuristic)" }}>matched on receiver.name with no static type — a guess the tool admits to</td></tr>
+            <tr><td>SCIP</td><td style=${{ color: "var(--exact)" }}>a compiler symbol matched</td>
+              <td style=${{ color: "var(--ink-3)" }}>never emitted — every addEdge call passes EdgeConfidenceExact</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div className=${"callout " + (source === "scip" ? "bad" : "warn")} style=${{ marginTop: "14px" }}>
+        ${source === "scip"
+          ? html`You are currently viewing the SCIP path, where <b>every edge reads EXACT</b>. That is
+                 not a claim of correctness — it is the absence of a doubt channel. Missing edges stay
+                 missing and nothing is flagged.`
+          : html`On the parser path, <b>${G.heuristic} of ${G.edges.toLocaleString()} edges</b> carry
+                 HEURISTIC. Those are the ones the tool is telling you to check by hand.`}
+      </div>
+      <div className="callout" style=${{ marginTop: "10px" }}>
+        Ambiguous references are <b>dropped, not guessed</b>. ${G.rAmb} of them here. A missing edge is a
+        false negative you can measure; a wrong edge is a false positive you cannot see.
+      </div>
+    </div>`;
+}
+
+function MechBFS() {
+  const [step, setStep] = useState(0);
+  const frames = [
+    { q: ["seed"], v: ["seed"], note: "seeds enqueued at depth 0, marked visited" },
+    { q: ["A", "B"], v: ["seed", "A", "B"], note: "seed dequeued, its callers enqueued and marked" },
+    { q: ["B", "C"], v: ["seed", "A", "B", "C"], note: "A expands; C is new" },
+    { q: ["C"], v: ["seed", "A", "B", "C"], note: "B expands; its caller C is already visited — skipped, so C keeps its shorter path" },
+    { q: [], v: ["seed", "A", "B", "C"], note: "C is at maxDepth: dequeued, not expanded" }
+  ];
+  const f = frames[step];
+  return html`
+    <div>
+      <${Lbl}>slice-backed queue, head index instead of shifting<//>
+      <div className="stack" style=${{ marginBottom: "16px" }}>
+        <div className="row">
+          <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "62px" }}>queue</span>
+          <${AnimatePresence} mode="popLayout">
+            ${f.q.length ? f.q.map(x => html`
+              <${MS} key=${"q" + x} layout initial=${{ opacity: 0, scale: 0.9 }}
+                animate=${{ opacity: 1, scale: 1 }} exit=${{ opacity: 0, scale: 0.9 }} transition=${T(0.25)}
+                className=${"node" + (x === "seed" ? " seed" : "")}>${x}<//>`)
+              : html`<span key="empty" className="node dead">empty</span>`}
+          <//>
+        </div>
+        <div className="row">
+          <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "62px" }}>visited</span>
+          ${f.v.map(x => html`<span key=${"v" + x} className="node exact">${x}</span>`)}
+        </div>
+      </div>
+      <div className="callout" style=${{ minHeight: "44px" }}>${f.note}</div>
+      <div className="seg" style=${{ marginTop: "14px" }}>
+        <button type="button" onClick=${() => setStep(Math.max(0, step - 1))}>← back</button>
+        <button type="button" onClick=${() => setStep(Math.min(frames.length - 1, step + 1))}>step →</button>
+        <button type="button" onClick=${() => setStep(0)}>reset</button>
+      </div>
+      <${Scale}>
+        Four letters standing in for a real traversal over ${G.nodes} nodes and
+        ${G.edges.toLocaleString()} edges. Frame 4 is the point: dedup happens on
+        <b>enqueue</b>, so the first path found — the shortest — is the one reported as the why-path.
+      <//>
+    </div>`;
+}
+
+function MechFormula({ sc }) {
+  const t = sc.top[0];
+  const base = t.risk === "HIGH" ? 80 : t.risk === "MEDIUM" ? 50 : 20;
+  const callerTerm = Math.round(8 * Math.log1p(t.prod));
+  const testTerm = t.test ? 0 : 6;
+  const depthTerm = t.d <= 1 ? 12 : t.d === 2 ? 6 : t.d >= 4 ? -4 : 0;
+  const confTerm = t.conf === "HEURISTIC" ? -8 : 0;
+  const terms = [
+    { l: "tier base (" + t.risk + ")", v: base, why: "the coarse category, already derived from prod callers + export" },
+    { l: "8 × log1p(" + t.prod + " prod callers)", v: callerTerm, why: "within-tier granularity — uncapped but sublinear" },
+    { l: t.test ? "is a test function" : "not a test function", v: testTerm, why: "a test in the blast radius is a lower review priority" },
+    { l: "depth " + t.d, v: depthTerm, why: "proximity to the change" },
+    { l: t.conf === "HEURISTIC" ? "heuristic path" : "exact path", v: confTerm, why: "a guessed edge is weaker evidence" }
+  ];
+  return html`
+    <div>
+      <${Lbl}>computeReviewScore, term by term — ${t.n}<//>
+      <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id}>
+        ${terms.map(x => html`
+          <${M} key=${x.l} variants=${itemV} className="row" style=${{ alignItems: "baseline" }}>
+            <span style=${{ fontFamily: "var(--mono)", fontSize: "12px", minWidth: "46px", textAlign: "right",
+                            color: x.v > 0 ? "var(--exact)" : x.v < 0 ? "var(--alarm)" : "var(--ink-3)" }}>
+              ${x.v > 0 ? "+" : ""}${x.v}
+            </span>
+            <span className="node" style=${{ minWidth: "204px", whiteSpace: "normal" }}>${x.l}</span>
+            <span style=${{ fontSize: "11.5px", color: "var(--ink-3)" }}>${x.why}</span>
+          <//>`)}
+        <${M} variants=${itemV} className="row"
+          style=${{ borderTop: "1px solid var(--line)", paddingTop: "10px", marginTop: "4px", alignItems: "baseline" }}>
+          <span style=${{ fontFamily: "var(--mono)", fontSize: "15px", fontWeight: 700, minWidth: "46px", textAlign: "right" }}>
+            ${t.rs}
+          </span>
+          <span style=${{ fontFamily: "var(--mono)", fontSize: "11.5px", color: "var(--ink-3)" }}>review_score</span>
+        <//>
+      <//>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        The rule the comment in the source states outright: <b>the tier base already encodes caller
+        count and export status</b>, so nothing else may re-add them. An earlier version did — a linear
+        caller bonus plus a separate +10 for exported — which double-counted the same evidence, and the
+        linear term saturated so a 6-caller and a 600-caller function tied.
+      </div>
+      <div className="callout bad" style=${{ marginTop: "10px" }}>
+        Every constant here — 80/50/20, the weight 8, +12/+6/−4, −8 — is hand-picked. None of it is
+        fitted to data. The next stage is what happens when you go and measure it.
+      </div>
+    </div>`;
+}
+
+function MechEval() {
+  const [view, setView] = useState("full");
+  return html`
+    <div>
+      <${Lbl}>replay: index each commit's tree in a throwaway worktree, analyse its own diff<//>
+      <pre className="code">${`git worktree add --detach --force $tmp $sha
+WalkDirectory → ParseFiles → Build          `}<i>// parser backend, no SCIP — replay speed</i>${`
+diff C^1 C → MapDiffToFunctions → blast radius
+record: max review score, churn, affected count, max fan-in
+
+label: reverted   ("This reverts commit ...")
+       hot-fixed  (fix-shaped subject, overlapping files, within the window)`}</pre>
+      <div className="seg" style=${{ margin: "16px 0 14px" }}>
+        <button type="button" aria-pressed=${view === "full"} onClick=${() => setView("full")}>full corpus (n=300)</button>
+        <button type="button" aria-pressed=${view === "sub"} onClick=${() => setView("sub")}>scored subset (n=99)</button>
+      </div>
+      <${AnimatePresence} mode="wait">
+        <${M} key=${view} initial=${{ opacity: 0, y: 6 }} animate=${{ opacity: 1, y: 0 }}
+          exit=${{ opacity: 0, y: -6 }} transition=${T(0.26)} className="scroll-x">
+          ${view === "full" ? html`
+            <table className="data">
+              <thead><tr><th>ranker</th><th className="num">AUC</th><th className="num">P@5</th>
+                <th className="num">P@10</th><th className="num">IFA</th></tr></thead>
+              <tbody>
+                ${EVAL.rankers.map(r => html`
+                  <tr key=${r.name}>
+                    <td style=${{ color: r.mine ? "var(--seed)" : "inherit" }}>${r.name}${r.mine ? " ←" : ""}</td>
+                    <td className="num">${r.auc.toFixed(3)}</td>
+                    <td className="num">${r.p5.toFixed(3)}</td>
+                    <td className="num">${r.p10.toFixed(3)}</td>
+                    <td className="num">${r.ifa.toFixed(1)}</td>
+                  </tr>`)}
+              </tbody>
+            </table>` : html`
+            <table className="data">
+              <thead><tr><th>ranker, restricted to commits the tool actually scored</th><th className="num">AUC</th></tr></thead>
+              <tbody>
+                ${EVAL.subset.rows.map(r => html`
+                  <tr key=${r.name}>
+                    <td style=${{ color: r.mine ? "var(--seed)" : "inherit" }}>${r.name}${r.mine ? " ←" : ""}</td>
+                    <td className="num">${r.auc.toFixed(3)}</td>
+                  </tr>`)}
+              </tbody>
+            </table>`}
+        <//>
+      <//>
+      <div className="callout bad" style=${{ marginTop: "16px" }}>
+        <b>The honest reading.</b> On the full corpus the ladder (0.613) beats churn (0.595) and random
+        (0.494). But <b>${EVAL.zero} of ${EVAL.n} commits score zero</b> — including
+        <b>${EVAL.zeroRisky} of the ${EVAL.positives} risky ones</b>. Restrict to the ${EVAL.subset.n}
+        commits it actually scored and AUC collapses to <b>0.516</b>, behind raw fan-in at 0.541.
+        Nearly all the signal is the coarse bit "does this change touch resolved functions at all" —
+        not the weighting.
+      </div>
+      <div className="callout" style=${{ marginTop: "10px" }}>
+        <b>P@5 = 0.000 is a finding, not a bug.</b> The five widest-blast-radius commits were large
+        refactors and features, not the ones that got hot-fixed. Impact ≠ probability of defect. The
+        score models Impact only, and big changes also attract more review.
+      </div>
+    </div>`;
+}
+
+/* ══════════════════ stage definitions ══════════════════ */
+
+const ACTS = [
+  {
+    id: "build", label: "I · Build the graph",
+    title: "From a directory of files to a graph bound to one commit",
+    stages: [
+      { id: "walk", t: "Walk", h: "Find the source, skip the noise",
+        k: "One WalkDir pass decides what the tool will ever be able to see. Everything downstream inherits this filter.",
+        M: MechWalk,
+        why: html`<p>The walk skips on the way <strong>down</strong>: returning SkipDir on node_modules
+          means its entire subtree is never stat-ed. Dot directories are skipped by rule, with
+          <strong>.github</strong> explicitly allow-listed so CI workflows stay visible.</p>
+          <p>WalkDir is used rather than Walk because it does not follow symlinks, and there is an
+          explicit guard for irregular entries — Windows directory junctions make Walk recurse
+          forever.</p>`,
+        limit: "Files are classified by extension alone. A Go file behind a build tag is still parsed, generated code is indistinguishable from hand-written code, and .min.js is detected by filename rather than content.",
+        refs: ["internal/parser/walker.go:46", "walker.go:20 skipDirs", "walker.go:31 allowDotDirs"] },
+      { id: "parse", t: "Parse", h: "Two front ends, one FileResult",
+        k: "Go goes through the standard library's own parser and type checker. Everything else goes through tree-sitter.",
+        M: MechParse,
+        why: html`<p>Both front ends normalise to the same <strong>FileResult</strong>: functions,
+          classes, imports and call sites. That shared shape is why the graph builder does not care
+          which language it is looking at.</p>
+          <p>A syntax error does not discard the file. go/parser returns a partial AST alongside the
+          error, and the registry keeps those recovered nodes rather than losing the file entirely.</p>`,
+        limit: "Files over 10 MB are skipped silently — they are not reported as gaps, they simply are not in the graph. The 30-second tree-sitter timeout has the same property.",
+        refs: ["internal/parser/registry.go:35", "internal/parser/golang.go:21", "internal/parser/treesitter.go:12"] },
+      { id: "source", t: "Index source", h: "SCIP if it can, parser if it must",
+        k: "The single most consequential branch in the tool: which backend builds the graph.",
+        M: MechScip,
+        why: html`<p>An existing <strong>index.scip</strong> at the root wins outright. Otherwise the
+          tool builds one candidate per language, each gated on a project marker — go.mod,
+          package.json, pyproject.toml — and records a status for every one: generated, cached,
+          skipped, missing_binary or failed.</p>
+          <p>Reporting the status matters more than it looks. A silently absent indexer would degrade
+          the graph without ever saying so.</p>`,
+        limit: "Cache freshness is decided by file modification time, not content hash — unlike the parser cache, which uses sha256. Touching a file invalidates a SCIP index that did not actually change.",
+        refs: ["internal/cmd/index.go:226", "index.go:238 generateSCIPIndexes", "index.go:477 scipIndexCacheFresh"] },
+      { id: "resolve", t: "Resolve", h: "Turning a name into an edge",
+        k: "A call site is a string. Deciding which definition it points at is where a call graph is won or lost.",
+        M: MechResolve,
+        why: html`<p>The parser backend walks an ordered ladder and stops at the first rung that
+          matches, tagging the edge EXACT or HEURISTIC by <em>how</em> it matched. If more than one
+          candidate fits, the edge is <strong>dropped as ambiguous</strong> rather than guessed.</p>
+          <p>That is the central bet: a missing edge is a false negative you can count, and a wrong
+          edge is a false positive that quietly corrupts every blast radius downstream.</p>`,
+        limit: "Only 23% of call sites resolve on this repo. Three thousand unresolved calls means the blast radius is a lower bound — the honest reading of any result is \"at least this much\", never \"exactly this much\".",
+        refs: ["internal/graph/builder.go:592", "builder.go:904 resolveUnique", "internal/graph/types.go:26"] },
+      { id: "bounds", t: "Refine bounds", h: "Widening a symbol to its body",
+        k: "A fix that only makes sense once you know what the diff mapper does with line numbers.",
+        M: MechBounds,
+        why: html`<p>scip-go emits definition ranges that cover the <strong>identifier</strong>, not the
+          function body, so StartLine equals EndLine. TraceScope re-parses each Go file with go/ast
+          purely to adopt the real body bounds.</p>
+          <p>It is an unglamorous correction that exists entirely to serve a later stage — which is
+          usually where the real bugs live.</p>`,
+        limit: "The correction is Go-only. TypeScript and Python function bounds still come from whatever their indexer reported, so the same class of silent mis-mapping remains possible there.",
+        refs: ["internal/graph/scip.go:257", "internal/analyzer/diff_mapper.go:144"] },
+      { id: "bind", t: "Bind + save", h: "A graph that knows which commit it describes",
+        k: "Line numbers are only meaningful relative to a revision. So the graph records its own.",
+        M: MechBind,
+        why: html`<p>Commit and origin remote are stamped at save time, and analyze compares the stored
+          commit against HEAD. A stale graph does not fail loudly — it quietly maps diff lines onto
+          functions that have since moved, which is the worst kind of wrong.</p>
+          <p>The write itself goes to a temp file and is renamed, so an interrupted index leaves the
+          previous graph intact rather than a truncated one.</p>`,
+        limit: "It is a warning, not a refusal — analysis proceeds on the stale graph. The repo remote is recorded but never checked, so a graph from a different repository entirely would be used without complaint.",
+        refs: ["internal/cmd/index.go:507", "internal/graph/store.go:20", "internal/cmd/analyze.go:118"] }
+    ]
+  },
+  {
+    id: "pr", label: "II · Analyse a PR",
+    title: "A diff arrives, and something has to decide what it touches",
+    stages: [
+      { id: "diff", t: "Diff", h: "Hunks into line ranges", k: "The input is a unified diff on stdin. Nothing else.",
+        M: MechDiff,
+        why: html`<p>Each hunk body is walked line by line, tracking a position in the
+          <strong>new</strong> file. Additions open a range; context lines close it.</p>
+          <p>Deletions are the hard case, and the reason this stage has a dedicated scenario.</p>`,
+        limit: "Binary files are detected by scanning the extended header for the word \"binary\" — a text file whose diff header happens to contain that word would be skipped.",
+        refs: ["internal/diff/parser.go:24", "parser.go:60 extractChangedLinesFromBody"] },
+      { id: "map", t: "Map", h: "Which functions do those lines sit inside?",
+        k: "Line ranges meet function bounds. The intersection is the change.",
+        M: MechMap,
+        why: html`<p>Purely geometric: a function is changed if any changed range overlaps
+          [StartLine, EndLine]. No name matching, no heuristics.</p>
+          <p>The tricky half is paths — the diff says internal/x.go, the graph stores an absolute OS
+          path — so matching is done on <strong>path segments</strong> and ties break alphabetically
+          for determinism.</p>`,
+        limit: "Overlap is only as good as the bounds in the graph, which is why the stale-commit warning matters. On this repo the artifact is 3 commits behind, so some of these mappings would already be wrong.",
+        refs: ["internal/analyzer/diff_mapper.go:19", "diff_mapper.go:111 matchGraphPath", "diff_mapper.go:130 pathSegmentSuffix"] },
+      { id: "seeds", t: "Seeds", h: "What actually starts the traversal",
+        k: "A bug that became a rule: never let a file and its functions both seed.",
+        M: MechSeeds,
+        why: html`<p>Function-level seeds are preferred. A file node is added only for files where no
+          function matched — a config file, or a file whose functions the backend could not
+          resolve.</p>`,
+        limit: "If the graph resolved no functions for a changed source file, that file seeds at file level and the traversal is much coarser. The report does not distinguish that case from a genuinely small blast radius.",
+        refs: ["internal/analyzer/blast_radius.go:112", "blast_radius.go:134"] },
+      { id: "traverse", t: "Traverse", h: "Reverse BFS, bounded",
+        k: "Follow callers upward. Stop at depth 5.",
+        M: MechTraverse,
+        why: html`<p>Edges are followed <strong>backwards</strong>: A calls B, so if B changes, A is
+          affected. CALLS, CONTAINS, EXTENDS and IMPLEMENTS all propagate; IMPORTS deliberately does
+          not, because file-level imports would pull in half the repository.</p>
+          <p>CALLS edges are followed only into function nodes. The SCIP indexer also emits a CALLS
+          edge from a function to a <em>type</em> it references, and treating those as call
+          dependencies turned shared types into hubs that flooded the radius.</p>`,
+        limit: "Depth 5 is a fixed default with no principle behind it. Everything past hop 5 is invisible, and the report gives no signal that the frontier was cut rather than exhausted.",
+        refs: ["internal/graph/query.go:23", "query.go:47 CALLS guard", "query.go:100 depth bound"] },
+      { id: "score", t: "Score", h: "Tiers, then a ranking key",
+        k: "Two separate mechanisms that are easy to confuse: the risk tier and the review score.",
+        M: MechScore,
+        why: html`<p>The tier is a ladder of rules over production caller count, export status and
+          depth. The review score then orders functions <em>within</em> those tiers.</p>
+          <p>Only production callers count. A helper called from forty tests and one handler is not a
+          review priority, and counting raw fan-in would say otherwise.</p>`,
+        limit: "The tiers are still coarse: everything from 3 production callers to 9 lands on the same MEDIUM base, and the ranking within a tier rests entirely on hand-picked constants. The test rung fixed one visible failure, not the underlying fact that these thresholds were never fitted to data.",
+        refs: ["internal/analyzer/risk_scorer.go:40", "risk_scorer.go:69 test rung", "internal/analyzer/blast_radius.go:259"] },
+      { id: "why", t: "Why-path", h: "The chain that justifies the claim",
+        k: "A ranked list nobody can verify is a list nobody trusts.",
+        M: MechWhy,
+        why: html`<p>Every affected function ships with the edge chain that reached it, reconstructed
+          from the BFS parent map. It makes each row falsifiable: open the two files and check the
+          call exists.</p>
+          <p>Path confidence is the <strong>weakest link</strong> — one heuristic hop marks the whole
+          path heuristic, and costs the row 8 points.</p>`,
+        limit: "The path is the shortest one, not necessarily the most important one. A function reachable by one obscure route and twenty obvious ones shows only the route BFS happened to find first.",
+        refs: ["internal/analyzer/blast_radius.go:207", "internal/graph/query.go:125 mergeConfidence"] },
+      { id: "owners", t: "Owners", h: "Who should look at this",
+        k: "The stage most easily skipped, and the first thing a reviewer actually wants.",
+        M: MechOwners,
+        why: html`<p>Two sources, deliberately independent: CODEOWNERS for policy, git log for reality.
+          Reviewers are suggested for the affected files as well as the changed ones, since the point
+          of a blast radius is that the damage is not where you edited.</p>`,
+        limit: "git log -1 gives the last person to touch a file, which is not the same as the person who understands it. And it is per-file, so a 900-line file has exactly one \"owner\" no matter how many people work in it.",
+        refs: ["internal/ownership/ownership.go:16", "internal/ownership/codeowners.go:79", "internal/ownership/git_log.go:22"] },
+      { id: "surfaces", t: "Surfaces", h: "Four renderings, one result",
+        k: "Terminal, JSON, GitHub markdown, standalone HTML.",
+        M: MechSurfaces,
+        why: html`<p>Each surface is a pure function of the same AnalysisResult. The GitHub comment
+          carries a hidden marker so a repeat run <strong>edits its own comment</strong> instead of
+          adding a new one on every push.</p>`,
+        limit: "The markdown comment prints absolute file paths straight from the graph, so a PR comment can end up quoting an indexing machine's local directory layout.",
+        refs: ["internal/output/github.go:18", "github.go:248", "internal/output/terminal.go:26", "internal/output/json.go:9"] },
+      { id: "exit", t: "Exit code", h: "The part CI actually reads",
+        k: "Everything above is advisory until it becomes a number between 0 and 3.",
+        M: MechExit,
+        why: html`<p>0 clean, 1 HIGH, 2 MEDIUM, 3 the tool itself failed. Keeping 3 distinct is the
+          whole design: a broken invocation must never be indistinguishable from a dangerous
+          change.</p>
+          <p>The workflow blocks on 1 and 3, and lets 2 through as advisory.</p>`,
+        limit: "The gate is coarse — one HIGH anywhere in the radius fails the build regardless of how weak the path was. And on this repository it is close to inert: only 2 of 283 non-test functions can produce a HIGH at all.",
+        refs: ["internal/cmd/exit.go:22", "internal/analyzer/blast_radius.go:61", ".github/workflows/tracescope.yml"] }
+    ]
+  },
+  {
+    id: "hood", label: "III · Under the hood",
+    title: "The four mechanisms that decide whether any of this is true",
+    stages: [
+      { id: "frontends", t: "Front ends", h: "A type checker, or a syntax tree",
+        k: "The difference between knowing what x.Foo() refers to and guessing.",
+        M: MechFrontends,
+        why: html`<p>Go gets go/types, which resolves method calls against real receiver types.
+          Everything else gets tree-sitter, which is fast and language-agnostic but has no notion of
+          what a name means.</p>
+          <p>That asymmetry is why the same tool reports EXACT edges confidently in Go and hedges in
+          TypeScript.</p>`,
+        limit: "The Go type checker runs per file with its errors discarded, so even the strong path is only partially type-aware. This is the single biggest reason resolution sits at 23%.",
+        refs: ["internal/parser/golang.go:129", "golang.go:212 inferGoSelections", "internal/parser/typescript.go:310"] },
+      { id: "symbols", t: "Symbols", h: "What EXACT actually claims",
+        k: "The most over-read word in the output.",
+        M: MechSymbols,
+        why: html`<p>On the parser backend, confidence is a real signal: it records which rung of the
+          resolution ladder matched. On the SCIP backend, every edge is emitted EXACT — the label
+          stops carrying information.</p>`,
+        limit: "So confidence is not comparable across backends. Two graphs of the same repo can both report \"all exact\" and disagree about which edges exist, and nothing in the output would reveal it.",
+        refs: ["internal/graph/scip.go:395", "internal/graph/builder.go:592", "internal/graph/types.go:26"] },
+      { id: "bfs", t: "Traversal", h: "Visit order, dedup, and the bound",
+        k: "Step it manually. The order is the correctness argument.",
+        M: MechBFS,
+        why: html`<p>A slice with a head index rather than a linked list — the queue is append-only and
+          never shifts. Visited is marked at <strong>enqueue</strong> time, which is what guarantees
+          the recorded parent chain is the shortest path.</p>`,
+        limit: "Because dedup is global, a node reached at depth 2 by a weak path is never revisited by a strong path at depth 3. Confidence therefore depends on which route BFS found first.",
+        refs: ["internal/graph/query.go:76", "query.go:104", "query.go:116"] },
+      { id: "formula", t: "The formula", h: "Where every constant came from",
+        k: "Hand-tuned priors, stated as such.",
+        M: MechFormula,
+        why: html`<p>The design rule is that each piece of evidence enters the score exactly once. The
+          tier base owns caller count and export status; the log1p term adds granularity within a
+          tier; only orthogonal signals — depth, test-ness, confidence — may adjust further.</p>`,
+        limit: "Every number is a guess that has never been fitted. The next stage measures them, and the measurement is not kind.",
+        refs: ["internal/analyzer/blast_radius.go:259", "blast_radius.go:246", "internal/analyzer/risk_scorer.go:17"] },
+      { id: "eval", t: "Eval", h: "Replaying history to grade the ranking",
+        k: "The subcommand that exists to try to falsify the rest of the tool.",
+        M: MechEval,
+        why: html`<p>tracescope eval replays the tool across a repository's own history, labels each
+          commit by whether it was later reverted or hot-fixed, and scores the ranking against a churn
+          baseline and a random baseline.</p>
+          <p>The baselines are the point. Without them "AUC 0.613" is a number with no scale.</p>`,
+        limit: "One repo, n=300, and labels mined from commit messages rather than SZZ blame-tracing. Read it directionally. The random baseline landing at 0.494 is the only evidence the harness itself is not broken.",
+        refs: ["internal/eval/eval.go:86", "eval.go:376 auc", "docs/EVALUATION.md"] }
+    ]
+  }
+];
+
+/* ══════════════════ shell ══════════════════ */
+
+function Rail({ stages, active, onPick }) {
+  return html`
+    <nav className="rail" aria-label="Stages">
+      <p className="rail-title">stages</p>
+      <ol>
+        ${stages.map((s, i) => html`
+          <li key=${s.id}>
+            <button type="button" aria-current=${active === i} onClick=${() => onPick(i)}>
+              ${active === i && html`<${MS} layoutId="frontier" className="frontier" transition=${T(0.34)} />`}
+              <span className="n">${String(i + 1).padStart(2, "0")}</span>
+              <span>${s.t}</span>
+            </button>
+          </li>`)}
+      </ol>
+    </nav>`;
+}
+
+function App() {
+  const [actIdx, setActIdx] = useState(0);
+  const [stageIdx, setStageIdx] = useState(0);
+  const [source, setSource] = useState("parser");
+  const [scenarioId, setScenarioId] = useState("leaf");
+  const [theme, setTheme] = useState(() => document.documentElement.getAttribute("data-theme") || "auto");
+
+  const act = ACTS[actIdx];
+  const stage = act.stages[Math.min(stageIdx, act.stages.length - 1)];
+  const sc = SCENARIOS[scenarioId];
+
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, { stiffness: 120, damping: 28, restDelta: 0.001 });
+
+  useEffect(() => {
+    if (theme === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  const pickAct = i => { setActIdx(i); setStageIdx(0); };
+  const showScenario = act.id === "pr" || stage.id === "formula";
+  const showSource = act.id === "build" || stage.id === "symbols" || stage.id === "resolve";
+  const Mech = stage.M;
+
+  return html`
+    <${React.Fragment}>
+      <${M} className="progress" style=${{ scaleX }} />
+
+      <header>
+        <div className="wrap bar">
+          <div className="brand">tracescope<span> / readout</span></div>
+          <div className="acts" role="tablist">
+            ${ACTS.map((a, i) => html`
+              <button key=${a.id} role="tab" className="act-tab" aria-selected=${actIdx === i}
+                onClick=${() => pickAct(i)}>${a.label}</button>`)}
+          </div>
+          <button type="button" className="theme-btn"
+            onClick=${() => setTheme(theme === "dark" ? "light" : theme === "light" ? "auto" : "dark")}>
+            ${theme === "auto" ? "auto" : theme}
+          </button>
+        </div>
+      </header>
+
+      <main className="wrap">
+        <section className="hero">
+          <p className="eyebrow">a Go CLI that answers one question</p>
+          <h1>What does this pull request actually touch?</h1>
+          <${M} className="trace-rule" initial=${{ scaleX: 0 }} animate=${{ scaleX: 1 }} transition=${T(1.1, 0.15)} />
+          <p className="thesis">
+            TraceScope indexes a repository into a call graph, maps a unified diff onto the functions it
+            changed, walks callers backwards to find everything downstream, ranks what a reviewer should
+            read first, and returns an exit code CI can block on. This page walks that pipeline in the
+            order the code runs it. Every number below was measured in this repository — including the
+            ones that are unflattering.
+          </p>
+          <div className="strip">
+            <div><b>${G.nodes}</b><small>graph nodes</small></div>
+            <div><b>${G.edges.toLocaleString()}</b><small>edges</small></div>
+            <div><b>${G.resolvedPct}%</b><small>call sites resolved</small></div>
+            <div><b>0.613</b><small>ranking AUC</small></div>
+            <div><b>2 / 283</b><small>functions reaching HIGH</small></div>
+          </div>
+        </section>
+
+        <details className="gloss">
+          <summary>Glossary — every term this page uses</summary>
+          <dl className="gloss-grid">
+            ${GLOSSARY.map(([t, d]) => html`
+              <div key=${t}><dt>${t}</dt><dd>${d}</dd></div>`)}
+          </dl>
+        </details>
+
+        ${(showSource || showScenario) && html`
+        <div className="controls">
+          ${showSource && html`
+            <div>
+              <p className="ctl-label">graph source</p>
+              <div className="seg">
+                <button type="button" aria-pressed=${source === "parser"} onClick=${() => setSource("parser")}>parser backend</button>
+                <button type="button" aria-pressed=${source === "scip"} onClick=${() => setSource("scip")}>SCIP index</button>
+              </div>
+            </div>`}
+          ${showScenario && html`
+            <div>
+              <p className="ctl-label">scenario</p>
+              <div className="seg">
+                ${Object.values(SCENARIOS).map(s => html`
+                  <button key=${s.id} type="button" aria-pressed=${scenarioId === s.id}
+                    onClick=${() => setScenarioId(s.id)}>${s.label}</button>`)}
+              </div>
+            </div>`}
+          <p className="ctl-note">
+            ${showScenario
+              ? sc.seed + " — " + sc.blurb + ". Replayed against the real graph; " + sc.affected +
+                " affected, exit " + sc.exit + "."
+              : source === "scip"
+                ? "SCIP path: compiler-grade symbols, and no way for the tool to express doubt."
+                : "Parser path: this is what the committed graph artifact actually used."}
+          </p>
+        </div>`}
+
+        <p className="stage-head act-head">${act.label} — ${act.title}</p>
+
+        <div className="layout">
+          <${Rail} stages=${act.stages} active=${act.stages.indexOf(stage)} onPick=${setStageIdx} />
+
+          <div className="panel">
+            <${AnimatePresence} mode="wait">
+              <${M} key=${act.id + "/" + stage.id}
+                initial=${{ opacity: 0, y: 10 }} animate=${{ opacity: 1, y: 0 }}
+                exit=${{ opacity: 0, y: -8 }} transition=${T(0.3)}>
+                <p className="stage-head">stage ${String(act.stages.indexOf(stage) + 1).padStart(2, "0")} · ${stage.t}</p>
+                <h2 className="stage-title">${stage.h}</h2>
+                <p className="stage-kicker">${stage.k}</p>
+                <div className="cols">
+                  <div className="mech"><${Mech} sc=${sc} source=${source} /></div>
+                  <aside className="why">
+                    <h4>why it is built this way</h4>
+                    ${stage.why}
+                    <div className="limit">
+                      <b>the honest limitation</b>
+                      <span>${stage.limit}</span>
+                    </div>
+                    <${Refs} items=${stage.refs} />
+                  </aside>
+                </div>
+              <//>
+            <//>
+
+            <div className="row" style=${{ marginTop: "26px", gap: "8px" }}>
+              <button type="button" className="theme-btn"
+                onClick=${() => setStageIdx(Math.max(0, act.stages.indexOf(stage) - 1))}>← previous stage</button>
+              <button type="button" className="theme-btn"
+                onClick=${() => {
+                  const i = act.stages.indexOf(stage);
+                  if (i < act.stages.length - 1) setStageIdx(i + 1);
+                  else if (actIdx < ACTS.length - 1) pickAct(actIdx + 1);
+                }}>next stage →</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <footer className="wrap">
+        <p><b>Provenance.</b> Graph counts come from <code>.tracescope/graph.json</code>, built by the
+        parser backend at commit ${G.commit}. Scenario results were produced by replaying the logic in
+        ${" "}<code>graph/query.go</code>, <code>analyzer/risk_scorer.go</code> and
+        ${" "}<code>analyzer/blast_radius.go</code> against that artifact. Evaluation figures come from
+        ${" "}<code>docs/EVALUATION.md</code> (gin-gonic/gin, n=300).</p>
+        <p><b>What this page does not claim.</b> No SCIP-built graph of this repository is checked in,
+        so no node or edge counts are quoted for the SCIP path. Line numbers cited from the graph
+        artifact predate HEAD by three commits and have drifted — which is the failure mode stage 06
+        of Act I exists to catch.</p>
+      </footer>
+    <//>`;
+}
+
+const bootEl = document.getElementById("boot");
+if (bootEl) bootEl.remove();
+createRoot(document.getElementById("root")).render(html`<${App} />`);
+</script>
+</body>
+</html>
