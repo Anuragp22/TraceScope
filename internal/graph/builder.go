@@ -756,6 +756,18 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 			}
 		}
 	}
+	// Reaching here with a receiver means every receiver-aware strategy above
+	// failed and we are about to match on the bare name alone. That match may
+	// well be right — a same-file method call whose receiver type go/types could
+	// not infer, for instance — but it is no longer a certainty: `x.Foo()` is
+	// matching a definition of `Foo` chosen without knowing what `x` is. Report
+	// it as heuristic so the review score discounts it and the reviewer is told
+	// to check the path by hand.
+	bareConfidence := EdgeConfidenceExact
+	if call.Receiver != "" {
+		bareConfidence = EdgeConfidenceHeuristic
+	}
+
 	if ids, ok := funcByName[call.Name]; ok {
 		// Prefer same-file match
 		var sameFileMatches []string
@@ -767,7 +779,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 			}
 		}
 		if id, status := resolveUnique(sameFileMatches); id != "" {
-			return id, EdgeConfidenceExact, resolutionResolved
+			return id, bareConfidence, resolutionResolved
 		} else if status == resolutionAmbiguous {
 			return "", "", resolutionAmbiguous
 		}
@@ -783,7 +795,7 @@ func (b *Builder) resolveCall(fr *parser.FileResult, call parser.FunctionCall, f
 				}
 			}
 			if id, status := resolveUnique(samePackageMatches); id != "" {
-				return id, EdgeConfidenceExact, resolutionResolved
+				return id, bareConfidence, resolutionResolved
 			} else if status == resolutionAmbiguous {
 				return "", "", resolutionAmbiguous
 			}

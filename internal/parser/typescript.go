@@ -280,9 +280,12 @@ func (p *TypeScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 			})
 		}
 	case "member_expression":
-		obj := findChildContent(funcNode, "identifier", source)
+		obj := memberReceiver(funcNode, source)
 		prop := findChildContent(funcNode, "property_identifier", source)
 		if prop != "" {
+			if obj == "" {
+				obj = "?" // an unnameable object is still a receiver — see memberReceiver
+			}
 			result.Calls = append(result.Calls, FunctionCall{
 				Name:         prop,
 				Line:         line,

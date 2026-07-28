@@ -440,3 +440,54 @@ func TestBuilder_CallEdgeConfidenceUpgrades(t *testing.T) {
 		}
 	}
 }
+
+// TestBuilder_ReceiverCallIsNotExactViaBareName pins that a call with a
+// receiver, once every receiver-aware strategy has failed, is not reported as
+// an exact resolution. It may still match on the bare name — a same-file method
+// call whose receiver type could not be inferred, say — but `x.Foo()` matching
+// some definition of `Foo` chosen without knowing what `x` is has not been
+// resolved with certainty, and the review score should discount it.
+func TestBuilder_ReceiverCallIsNotExactViaBareName(t *testing.T) {
+	fr := &parser.FileResult{
+		FilePath: "/repo/a.go",
+		Language: parser.LangGo,
+		Package:  "a",
+		Functions: []parser.FunctionDef{
+			{Name: "caller", StartLine: 1, EndLine: 10},
+			{Name: "Error", StartLine: 12, EndLine: 14, Receiver: "MyErr"},
+		},
+		Calls: []parser.FunctionCall{
+			{Name: "Error", Line: 2, Receiver: "err"}, // err.Error() — unknown receiver
+		},
+	}
+	gd := NewBuilder().Build([]*parser.FileResult{fr})
+	for _, e := range gd.Edges {
+		if e.Type == EdgeCalls && e.Confidence == EdgeConfidenceExact {
+			t.Errorf("err.Error() resolved to a same-package Error with EXACT confidence; "+
+				"receiver was never identified, so this should be heuristic")
+		}
+	}
+
+	// A genuinely bare call in the same file stays exact — the downgrade must
+	// key on the presence of a receiver, not on bare-name matching generally.
+	fr2 := &parser.FileResult{
+		FilePath:  "/repo/b.go",
+		Language:  parser.LangGo,
+		Package:   "b",
+		Functions: []parser.FunctionDef{{Name: "caller", StartLine: 1, EndLine: 5}, {Name: "helper", StartLine: 7, EndLine: 9}},
+		Calls:     []parser.FunctionCall{{Name: "helper", Line: 2}},
+	}
+	gd2 := NewBuilder().Build([]*parser.FileResult{fr2})
+	found := false
+	for _, e := range gd2.Edges {
+		if e.Type == EdgeCalls {
+			found = true
+			if e.Confidence != EdgeConfidenceExact {
+				t.Errorf("a bare same-file call should stay EXACT, got %q", e.Confidence)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a CALLS edge for the bare same-file call")
+	}
+}

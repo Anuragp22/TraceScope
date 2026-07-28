@@ -217,9 +217,15 @@ func (p *JavaScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 			})
 		}
 	case "member_expression":
-		obj := findChildContent(funcNode, "identifier", source)
+		obj := memberReceiver(funcNode, source)
 		prop := findChildContent(funcNode, "property_identifier", source)
 		if prop != "" {
+			if obj == "" {
+				// The object is an expression with no name (e.g. f().c()). It is
+				// still a receiver, so mark it as one — an empty receiver would
+				// let bare-name resolution bind this to an unrelated local.
+				obj = "?"
+			}
 			result.Calls = append(result.Calls, FunctionCall{
 				Name:     prop,
 				Line:     line,
@@ -242,6 +248,46 @@ func (p *JavaScriptParser) walkForCalls(node *sitter.Node, source []byte, result
 	for i := 0; i < int(node.ChildCount()); i++ {
 		p.walkForCalls(node.Child(i), source, result)
 	}
+}
+
+// memberReceiver returns the object side of a member_expression as dotted text.
+//
+// findChildContent scans direct children only, so for a chained call like
+// a.b.c() the object is itself a member_expression and no `identifier` child
+// exists — the receiver came back empty and the call became indistinguishable
+// from a bare c(). Bare-name resolution would then bind it to any local
+// function named c. Flatten the chain instead so the receiver survives.
+//
+// Returns "" only when the object is not a name at all (e.g. f().c(), where
+// there is nothing to name); callers should still treat the call as having a
+// receiver in that case.
+func memberReceiver(member *sitter.Node, source []byte) string {
+	if member == nil || member.ChildCount() == 0 {
+		return ""
+	}
+	return flattenMemberObject(member.Child(0), source)
+}
+
+func flattenMemberObject(obj *sitter.Node, source []byte) string {
+	if obj == nil {
+		return ""
+	}
+	switch obj.Type() {
+	case "identifier", "this", "super", "property_identifier":
+		return obj.Content(source)
+	case "member_expression":
+		left := flattenMemberObject(obj.Child(0), source)
+		right := findChildContent(obj, "property_identifier", source)
+		switch {
+		case left != "" && right != "":
+			return left + "." + right
+		case left != "":
+			return left
+		default:
+			return right
+		}
+	}
+	return ""
 }
 
 func findChildContent(node *sitter.Node, childType string, source []byte) string {
