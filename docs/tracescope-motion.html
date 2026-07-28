@@ -292,14 +292,15 @@ const itemV = { hidden: { opacity: 0, y: 7 }, show: { opacity: 1, y: 0, transiti
    Eval numbers come from docs/EVALUATION.md.
    ══════════════════════════════════════════════════════════════════ */
 const G = {
-  nodes: 614, edges: 1592,
-  fn: 451, files: 90, cls: 73,
-  calls: 928, contains: 589, imports: 75,
-  exact: 1490, heuristic: 102,
-  rExact: 826, rHeur: 102, rAmb: 44, rUnres: 3059,
-  goNodes: 551, tsNodes: 63,
-  exported: 227, tests: 168,
-  commit: "2c2d5e0", head: "4dc8ac0",
+  nodes: 659, edges: 1475,
+  fn: 491, files: 93, cls: 75,
+  calls: 766, contains: 629, imports: 80,
+  exact: 1370, heuristic: 105,
+  rExact: 846, rHeur: 150, rAmb: 46, rUnres: 3204,
+  goNodes: 596, tsNodes: 63,
+  exported: 244, tests: 184,
+  nonTestFns: 307, ratedHigh: 6,
+  commit: "5bab678", head: "5bab678",
   source: "parser"
 };
 G.callSites = G.rExact + G.rHeur + G.rAmb + G.rUnres;      // 4031
@@ -334,28 +335,29 @@ const SCENARIOS = {
       { t: "add", s: "\treturn aStart <= bEnd && bStart <= aEnd && aEnd >= bStart" },
       { t: "ctx", s: "}" }
     ],
-    ranges: "144–147", affected: 19, high: 0, med: 2, low: 17, exit: 2,
+    ranges: "144–147", affected: 24, high: 1, med: 2, low: 21, exit: 1,
     top: [
-      { n: "Analyze", f: "internal/analyzer/blast_radius.go", l: 95, d: 2, prod: 4, raw: 11, risk: "MEDIUM", rs: 75, conf: "EXACT", why: "moderately connected (4 production callers)", path: ["linesOverlap", "MapDiffToFunctions", "Analyze"] },
+      { n: "Analyze", f: "internal/analyzer/blast_radius.go", l: 95, d: 2, prod: 5, raw: 12, risk: "HIGH", rs: 106, conf: "EXACT", why: "exported function with 5 production callers", path: ["linesOverlap", "MapDiffToFunctions", "Analyze"] },
       { n: "MapDiffToFunctions", f: "internal/analyzer/diff_mapper.go", l: 19, d: 1, prod: 1, raw: 8, risk: "MEDIUM", rs: 74, conf: "EXACT", why: "direct exported dependency (1 production callers)", path: ["linesOverlap", "MapDiffToFunctions"] },
+      { n: "Run", f: "internal/eval/eval.go", l: 86, d: 4, prod: 2, raw: 3, risk: "MEDIUM", rs: 53, conf: "HEURISTIC", why: "exported/public function", path: ["linesOverlap", "MapDiffToFunctions", "Analyze", "replayCommit", "Run"] },
       { n: "TestMapDiffToFunctions_BasicOverlap", f: "internal/analyzer/diff_mapper_test.go", l: 10, d: 2, prod: 0, raw: 0, risk: "LOW", rs: 26, conf: "EXACT", test: true, why: "test function with no production callers", path: ["linesOverlap", "MapDiffToFunctions", "TestMapDiffToFunctions_BasicOverlap"] }
     ]
   },
   hub: {
-    id: "hub", label: "Hub helper", blurb: "21 production callers inside one file",
-    seed: "canonicalPath", file: "internal/graph/builder.go", line: 880,
-    seedProd: 21, seedExport: false, kind: "modify",
+    id: "hub", label: "Hub helper", blurb: "15 production callers, all inside one file",
+    seed: "canonicalPath", file: "internal/graph/builder.go", line: 915,
+    seedProd: 15, seedExport: false, kind: "modify",
     hunk: [
       { t: "ctx", s: "func canonicalPath(path string) string {" },
       { t: "del", s: "\treturn filepath.ToSlash(path)" },
       { t: "add", s: "\treturn filepath.ToSlash(filepath.Clean(path))" },
       { t: "ctx", s: "}" }
     ],
-    ranges: "880–883", affected: 65, high: 0, med: 5, low: 60, exit: 2,
+    ranges: "915–918", affected: 73, high: 0, med: 5, low: 68, exit: 2,
     top: [
-      { n: "fileQualifier", f: "internal/graph/builder.go", l: 875, d: 1, prod: 9, raw: 9, risk: "MEDIUM", rs: 86, conf: "EXACT", why: "moderately connected (9 production callers)", path: ["canonicalPath", "fileQualifier"] },
-      { n: "Build", f: "internal/graph/builder.go", l: 34, d: 1, prod: 2, raw: 21, risk: "MEDIUM", rs: 77, conf: "EXACT", why: "direct exported dependency (2 production callers)", path: ["canonicalPath", "Build"] },
-      { n: "BuildFromSCIPFiles", f: "internal/graph/scip.go", l: 23, d: 2, prod: 3, raw: 4, risk: "MEDIUM", rs: 73, conf: "EXACT", why: "moderately connected (3 production callers)", path: ["canonicalPath", "loadSourceLines", "BuildFromSCIPFiles"] }
+      { n: "Build", f: "internal/graph/builder.go", l: 34, d: 1, prod: 3, raw: 25, risk: "MEDIUM", rs: 79, conf: "EXACT", why: "direct exported dependency (3 production callers)", path: ["canonicalPath", "Build"] },
+      { n: "BuildFromSCIPFiles", f: "internal/graph/scip.go", l: 23, d: 2, prod: 3, raw: 4, risk: "MEDIUM", rs: 73, conf: "EXACT", why: "moderately connected (3 production callers)", path: ["canonicalPath", "loadSourceLines", "BuildFromSCIPFiles"] },
+      { n: "Run", f: "internal/eval/eval.go", l: 86, d: 4, prod: 2, raw: 3, risk: "MEDIUM", rs: 53, conf: "HEURISTIC", why: "exported/public function", path: ["canonicalPath", "Build", "buildGraphAt", "replayCommit", "Run"] }
     ]
   },
   deletion: {
@@ -369,29 +371,29 @@ const SCENARIOS = {
       { t: "del", s: "\t}" },
       { t: "ctx", s: "\treturn EdgeConfidenceExact" }
     ],
-    ranges: "126 (zero-width anchor)", affected: 18, high: 0, med: 2, low: 16, exit: 2,
+    ranges: "126 (zero-width anchor)", affected: 23, high: 1, med: 2, low: 20, exit: 1,
     top: [
-      { n: "Analyze", f: "internal/analyzer/blast_radius.go", l: 95, d: 2, prod: 4, raw: 11, risk: "MEDIUM", rs: 75, conf: "EXACT", why: "moderately connected (4 production callers)", path: ["mergeConfidence", "ComputeBlastRadius", "Analyze"] },
-      { n: "ComputeBlastRadius", f: "internal/graph/query.go", l: 23, d: 1, prod: 1, raw: 8, risk: "MEDIUM", rs: 74, conf: "EXACT", why: "direct exported dependency (1 production callers)", path: ["mergeConfidence", "ComputeBlastRadius"] },
+      { n: "Analyze", f: "internal/analyzer/blast_radius.go", l: 95, d: 2, prod: 5, raw: 12, risk: "HIGH", rs: 106, conf: "EXACT", why: "exported function with 5 production callers", path: ["mergeConfidence", "ComputeBlastRadius", "Analyze"] },
+      { n: "ComputeBlastRadius", f: "internal/graph/query.go", l: 23, d: 1, prod: 1, raw: 7, risk: "MEDIUM", rs: 74, conf: "EXACT", why: "direct exported dependency (1 production callers)", path: ["mergeConfidence", "ComputeBlastRadius"] },
       { n: "TestComputeBlastRadius_BoundedDepth", f: "internal/graph/query_test.go", l: 43, d: 2, prod: 0, raw: 0, risk: "LOW", rs: 26, conf: "EXACT", test: true, why: "test function with no production callers", path: ["mergeConfidence", "ComputeBlastRadius", "TestComputeBlastRadius_BoundedDepth"] }
     ]
   },
   gate: {
-    id: "gate", label: "Trips the gate", blurb: "one of only two changes in this repo that reach HIGH",
-    seed: "matchPattern", file: "internal/ownership/codeowners.go", line: 128,
+    id: "gate", label: "Diff parser", blurb: "a 4-line path helper, one hop from the tool's front door",
+    seed: "cleanDiffPath", file: "internal/diff/parser.go", line: 162,
     seedProd: 1, seedExport: false, kind: "modify",
     hunk: [
-      { t: "ctx", s: "func matchPattern(pattern, filePath string) bool {" },
-      { t: "del", s: "\tpattern = filepath.ToSlash(pattern)" },
-      { t: "add", s: "\tpattern = strings.TrimSpace(filepath.ToSlash(pattern))" },
-      { t: "ctx", s: "\tfilePath = filepath.ToSlash(filePath)" }
+      { t: "ctx", s: "func cleanDiffPath(path string) string {" },
+      { t: "del", s: "\tif len(path) > 2 && (path[:2] == \"a/\" || path[:2] == \"b/\") {" },
+      { t: "add", s: "\tif len(path) > 2 && (path[:2] == \"a/\" || path[:2] == \"b/\" || path[:2] == \"i/\") {" },
+      { t: "ctx", s: "\t\treturn path[2:]" }
     ],
-    ranges: "128–131", affected: 26, high: 1, med: 3, low: 22, exit: 1,
+    ranges: "162–165", affected: 14, high: 1, med: 1, low: 12, exit: 1,
     top: [
-      { n: "Match", f: "internal/ownership/codeowners.go", l: 79, d: 1, prod: 6, raw: 10, risk: "HIGH", rs: 114, conf: "EXACT", why: "exported function with 6 production callers", path: ["matchPattern", "Match"] },
-      { n: "SuggestReviewers", f: "internal/ownership/codeowners.go", l: 95, d: 2, prod: 1, raw: 3, risk: "MEDIUM", rs: 68, conf: "EXACT", why: "exported/public function", path: ["matchPattern", "Match", "SuggestReviewers"] },
-      { n: "ResolveOwnership", f: "internal/ownership/ownership.go", l: 16, d: 3, prod: 3, raw: 3, risk: "MEDIUM", rs: 67, conf: "EXACT", why: "moderately connected (3 production callers)", path: ["matchPattern", "Match", "SuggestReviewers", "ResolveOwnership"] },
-      { n: "ComputeHotspots", f: "internal/analyzer/hotspots.go", l: 37, d: 3, prod: 2, raw: 8, risk: "MEDIUM", rs: 57, conf: "HEURISTIC", why: "exported/public function", path: ["matchPattern", "Match", "matchesAnyIgnore", "ComputeHotspots"] }
+      { n: "ParseUnifiedDiff", f: "internal/diff/parser.go", l: 24, d: 1, prod: 5, raw: 10, risk: "HIGH", rs: 112, conf: "EXACT", why: "exported function with 5 production callers", path: ["cleanDiffPath", "ParseUnifiedDiff"] },
+      { n: "Run", f: "internal/eval/eval.go", l: 86, d: 3, prod: 2, raw: 3, risk: "MEDIUM", rs: 65, conf: "EXACT", why: "exported/public function", path: ["cleanDiffPath", "ParseUnifiedDiff", "replayCommit", "Run"] },
+      { n: "replayCommit", f: "internal/eval/eval.go", l: 226, d: 2, prod: 1, raw: 1, risk: "LOW", rs: 38, conf: "EXACT", why: "internal function with few callers", path: ["cleanDiffPath", "ParseUnifiedDiff", "replayCommit"] },
+      { n: "handleAnalyze", f: "internal/server/server.go", l: 163, d: 2, prod: 0, raw: 0, risk: "LOW", rs: 32, conf: "EXACT", why: "internal function with few callers", path: ["cleanDiffPath", "ParseUnifiedDiff", "handleAnalyze"] }
     ]
   }
 };
@@ -677,15 +679,16 @@ graphData.RepoRemote = gitOriginRemote(rootPath)
           <span className="node">git HEAD</span><span className="node seed">${G.head}</span>
         <//>
         <${M} variants=${itemV}>
-          <div className="callout warn">
-            graph was indexed at a different commit than HEAD; re-run 'tracescope index' for accurate line mapping
+          <div className="callout good">
+            in sync — analysis proceeds without a warning
           </div>
         <//>
       <//>
       <${Scale}>
-        Not a mock-up. The checked-in artifact really is bound to ${G.commit} while HEAD is ${G.head},
-        so <b>this warning fires today</b>. Every line number this page quotes from the graph is
-        therefore drifted — which is exactly the failure the stamp exists to catch.
+        These match because the graph was rebuilt at HEAD. When this page was first written they did
+        not: the artifact was bound to <b>2c2d5e0</b> while HEAD was <b>4dc8ac0</b>, and every line
+        number quoted from it had drifted. That is exactly the failure the stamp exists to catch —
+        and the reason every figure on this page was re-measured after the graph moved.
       <//>
     </div>`;
 }
@@ -876,9 +879,9 @@ function MechScore({ sc }) {
       </div>
       ${sc.id === "hub" && html`
         <div className="callout" style=${{ marginTop: "14px" }}>
-          Look at <b>Build</b>: raw fan-in 21, production fan-in 2. Nineteen of its callers are tests.
-          Counting raw callers would have called it HIGH; counting production callers puts it at MEDIUM.
-          That gap is the whole argument for excluding test callers.
+          Look at <b>Build</b>: raw fan-in 25, production fan-in 3. Twenty-two of its callers are
+          tests. Counting raw callers would have called it HIGH; counting production callers puts it
+          at MEDIUM. That gap is the whole argument for excluding test callers.
         </div>`}
       ${sc.top.some(t => t.test) && html`
         <div className="callout good" style=${{ marginTop: "14px" }}>
@@ -910,11 +913,11 @@ function MechWhy({ sc }) {
       </div>
       ${sc.top.some(t => t.conf === "HEURISTIC") && html`
         <div className="callout warn" style=${{ marginTop: "10px" }}>
-          One path here is heuristic, and it is a genuine mis-resolution:
-          <b>matchesAnyIgnore</b> calls the third-party <b>doublestar.Match</b>, but the parser backend
-          had no static type for the receiver, so it fell to the last rung and matched the local
-          <b>Codeowners.Match</b>. Wrong edge — correctly labelled, and penalised 8 points.
-          A path takes the weakest confidence along it.
+          One path here is heuristic. Some hop along it was resolved without knowing the receiver's
+          type — a name match the tool could not confirm — and a path takes the <b>weakest</b>
+          confidence along it, so the whole chain is marked heuristic and the row loses 8 points.
+          Note it is four hops deep: the further a claim travels, the more chances it has to pass
+          through a link like that.
         </div>`}
     </div>`;
 }
@@ -1041,9 +1044,16 @@ exit 0                       `}<i>// MEDIUM is advisory — the comment still po
       </div>
       ${sc.exit === 2 && html`
         <div className="callout bad" style=${{ marginTop: "14px" }}>
-          Note this change exits <b>2</b>, which the workflow lets through. Across this entire
-          repository only <b>2 of 283</b> non-test functions produce a blast radius containing a
-          HIGH — so on its own codebase, this gate almost never blocks anything.
+          This change exits <b>2</b>, which the workflow lets through — 73 affected functions and
+          none of them HIGH. Breadth and severity are separate axes, and only severity is wired to
+          the gate.
+        </div>`}
+      ${sc.exit === 1 && html`
+        <div className="callout bad" style=${{ marginTop: "14px" }}>
+          The gate is coarse in the other direction too. Just <b>${G.ratedHigh} of ${G.fn}</b>
+          functions in this repo are rated HIGH, but they sit close to the middle of the call graph,
+          so a great many small changes reach one and fail the build. A single HIGH anywhere in the
+          radius fails it, however weak the path.
         </div>`}
     </div>`;
 }
@@ -1450,7 +1460,7 @@ const ACTS = [
           whole design: a broken invocation must never be indistinguishable from a dangerous
           change.</p>
           <p>The workflow blocks on 1 and 3, and lets 2 through as advisory.</p>`,
-        limit: "The gate is coarse — one HIGH anywhere in the radius fails the build regardless of how weak the path was. And on this repository it is close to inert: only 2 of 283 non-test functions can produce a HIGH at all.",
+        limit: "The gate is coarse — one HIGH anywhere in the radius fails the build regardless of how weak the path was, and the risk tier is the only thing wired to it. A change touching 73 functions can pass while a four-line helper fails.",
         refs: ["internal/cmd/exit.go:22", "internal/analyzer/blast_radius.go:61", ".github/workflows/tracescope.yml"] }
     ]
   },
@@ -1584,7 +1594,7 @@ function App() {
             <div><b>${G.edges.toLocaleString()}</b><small>edges</small></div>
             <div><b>${G.resolvedPct}%</b><small>call sites resolved</small></div>
             <div><b>0.613</b><small>ranking AUC</small></div>
-            <div><b>2 / 283</b><small>functions reaching HIGH</small></div>
+            <div><b>${G.ratedHigh} / ${G.fn}</b><small>functions rated HIGH</small></div>
           </div>
         </section>
 
@@ -1673,10 +1683,16 @@ function App() {
         ${" "}<code>graph/query.go</code>, <code>analyzer/risk_scorer.go</code> and
         ${" "}<code>analyzer/blast_radius.go</code> against that artifact. Evaluation figures come from
         ${" "}<code>docs/EVALUATION.md</code> (gin-gonic/gin, n=300).</p>
-        <p><b>What this page does not claim.</b> No SCIP-built graph of this repository is checked in,
-        so no node or edge counts are quoted for the SCIP path. Line numbers cited from the graph
-        artifact predate HEAD by three commits and have drifted — which is the failure mode stage 06
-        of Act I exists to catch.</p>
+        <p><b>What this page does not claim.</b> No SCIP-built graph of this repository exists on
+        disk, so no node or edge counts are quoted for the SCIP path — inventing them would be a
+        made-up number.</p>
+        <p><b>These figures moved once already.</b> The page was first written against an artifact
+        indexed at 2c2d5e0, which reported 614 nodes and 928 call edges. Auditing the code for this
+        walkthrough turned up two defects in the graph builder — one CALLS edge emitted per call
+        site rather than per caller, and chained JS/TS calls binding to unrelated local functions —
+        so the graph was rebuilt after fixing them and every number here re-measured. Call edges
+        fell to ${G.calls} and unresolved calls rose to ${G.rUnres.toLocaleString()}: fewer invented
+        edges, more admitted gaps.</p>
       </footer>
     <//>`;
 }
