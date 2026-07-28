@@ -78,6 +78,34 @@ func TestComputeReviewScore_NoExportDoubleCount(t *testing.T) {
 	}
 }
 
+// TestRiskScorer_TestFunctionNotMedium pins the rung that keeps test functions
+// out of the top of the review list. Every Go TestXxx is an exported name, so
+// before this rung existed the "exported/public function" fallback tagged every
+// test in the blast radius MEDIUM — and on a change whose only direct callers
+// are tests, the entire top of the ranking was test code.
+func TestRiskScorer_TestFunctionNotMedium(t *testing.T) {
+	scorer := &RiskScorer{}
+
+	test := &graph.Node{Name: "TestThing", IsExport: true, IsTest: true}
+	if risk, _ := scorer.Score(test, 1, 0); risk != RiskLow {
+		t.Errorf("expected LOW for a test function with no production callers, got %s", risk)
+	}
+
+	// The rung must not shadow a genuinely connected node that happens to live
+	// in a test file — production callers still decide the tier.
+	helper := &graph.Node{Name: "Helper", IsExport: true, IsTest: true}
+	if risk, _ := scorer.Score(helper, 1, 12); risk != RiskHigh {
+		t.Errorf("expected HIGH for a test-file node with 12 production callers, got %s", risk)
+	}
+
+	// A non-test exported function with no callers is still MEDIUM — the rung
+	// must key on IsTest, not on the caller count alone.
+	prod := &graph.Node{Name: "Exported", IsExport: true}
+	if risk, _ := scorer.Score(prod, 1, 0); risk != RiskMedium {
+		t.Errorf("expected MEDIUM for an exported non-test function, got %s", risk)
+	}
+}
+
 func TestRiskScorer_TestCallersFiltered(t *testing.T) {
 	scorer := &RiskScorer{}
 
