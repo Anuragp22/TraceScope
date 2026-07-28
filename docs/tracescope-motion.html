@@ -1885,23 +1885,41 @@ const SEQUENCE = [
   { pkg: "internal/cmd", call: "ResolveExit", note: "0 · 1 · 2 · 3, and the process ends" }
 ];
 
-const DECISIONS = [
-  { c: "372bb5f", was: "one CALLS edge per call site", now: "one per (caller, callee) pair",
-    why: "caller counts are edge counts, so 11 calls from one function read as 11 callers" },
-  { c: "5e2145c", was: "a.b.c() lost its receiver", now: "the object chain is flattened",
-    why: "an empty receiver fell through to bare-name matching and invented an edge, marked EXACT" },
-  { c: "9c8a9ba", was: "every Go TestXxx scored MEDIUM", now: "a test with no production callers is LOW",
-    why: "test names are exported, so the export fallback floated them to the top of the review list" },
-  { c: "24f1b74", was: "caller count added twice", now: "the tier owns it, log1p refines within the tier",
-    why: "a linear bonus plus the tier double-counted, and saturated so 6 and 600 callers tied" },
-  { c: "f84e4cd", was: "CALLS edges followed into class nodes", now: "into function nodes only",
-    why: "SCIP emits a CALLS edge to referenced types; shared types became hubs that flooded the radius" },
-  { c: "2c2d5e0", was: "deletion-only hunks produced no range", now: "a zero-width anchor at the deletion point",
-    why: "deleted lines are absent from the new file, so the enclosing function was never seeded" },
-  { c: "c768dc8", was: "the graph was anonymous", now: "it records its commit and remote",
-    why: "line numbers are meaningless without knowing the revision they came from" },
-  { c: "5d31fc8", was: "a failed PR comment failed the run", now: "it warns and continues",
-    why: "the exit code is the contract; the comment is a side effect and must not mask the signal" }
+// Design invariants: properties the graph and the score are required to hold.
+// Each states the rule, why it is necessary, and the failure mode if it lapses.
+const INVARIANTS = [
+  { rule: "One CALLS edge per (caller, callee) pair",
+    holds: "Caller counts are computed by counting edges, so the edge set has to be a set. Eleven calls from one function are one dependency, not eleven.",
+    breaks: "A single caller is reported as many, and a function can cross the HIGH threshold on its own call volume.",
+    where: "graph/builder.go:316" },
+  { rule: "A call with a receiver never resolves by bare name alone",
+    holds: "x.Foo() and Foo() are different references. Matching some definition of Foo without knowing what x is has not identified a target.",
+    breaks: "A chained call binds to an unrelated local function of the same name, and is reported as EXACT.",
+    where: "graph/builder.go:759" },
+  { rule: "A test with no production callers is LOW risk",
+    holds: "Every Go TestXxx is an exported identifier, so the exported-function rung would otherwise classify all of them as MEDIUM.",
+    breaks: "Test functions occupy the top of the list a reviewer is directed to read first.",
+    where: "analyzer/risk_scorer.go:69" },
+  { rule: "Each piece of evidence enters the score exactly once",
+    holds: "The risk tier already encodes caller count and export status. Anything added afterwards must be orthogonal to it: depth, test-ness, path confidence.",
+    breaks: "Caller count is counted twice, and a linear term saturates so 6 and 600 callers rank identically.",
+    where: "analyzer/blast_radius.go:246" },
+  { rule: "CALLS edges are followed only into function nodes",
+    holds: "A SCIP index emits a CALLS edge from a function to each type it references. A call, by definition, targets a function.",
+    breaks: "Shared types become hubs and the blast radius floods with every user of a common struct.",
+    where: "graph/query.go:47" },
+  { rule: "A deletion-only hunk anchors a zero-width range",
+    holds: "Deleted lines have no position in the new file, so the line counter does not advance and the hunk yields no range at all.",
+    breaks: "The enclosing function is never seeded, and a pure deletion reports a clean blast radius.",
+    where: "diff/parser.go:66" },
+  { rule: "A graph records the revision it was built from",
+    holds: "Every line number in the graph is relative to one commit. Analysis compares that commit against HEAD and warns on drift.",
+    breaks: "A diff maps onto whatever now occupies those line numbers, and the report is confidently wrong.",
+    where: "cmd/index.go:507" },
+  { rule: "The exit code is the contract; everything else is a side effect",
+    holds: "Posting a PR comment can fail for reasons unrelated to the code under review — a token, a rate limit, a detached checkout.",
+    breaks: "A transient API failure blocks a merge and the risk signal is lost behind an unrelated error.",
+    where: "cmd/analyze.go:182" }
 ];
 
 function MechPackages() {
@@ -2044,40 +2062,53 @@ function MechSequence() {
     </div>`;
 }
 
-function MechDecisions() {
+function MechInvariants() {
   const [open, setOpen] = useState(0);
   return html`
     <div>
-      <${Lbl}>eight commits where a bug became a rule<//>
-      <div className="stack" style=${{ gap: "4px" }}>
-        ${DECISIONS.map((d, i) => html`
-          <div key=${d.c}>
+      <${Lbl}>properties the graph and the score are required to hold<//>
+      <div className="stack" style=${{ gap: "3px" }}>
+        ${INVARIANTS.map((v, i) => html`
+          <div key=${v.rule}>
             <button type="button" onClick=${() => setOpen(open === i ? -1 : i)}
-              style=${{ display: "flex", gap: "9px", alignItems: "baseline", width: "100%", textAlign: "left",
-                        background: "none", border: "none", padding: "5px 0", cursor: "pointer",
+              aria-expanded=${open === i}
+              style=${{ display: "flex", gap: "10px", alignItems: "baseline", width: "100%", textAlign: "left",
+                        background: "none", border: "none", borderLeft: "2px solid " + (open === i ? "var(--seed)" : "transparent"),
+                        padding: "6px 0 6px 9px", cursor: "pointer",
                         fontFamily: "var(--mono)", fontSize: "11.5px",
                         color: open === i ? "var(--ink)" : "var(--ink-2)" }}>
-              <span style=${{ color: "var(--seed)", flex: "0 0 auto" }}>${d.c}</span>
-              <span style=${{ textDecoration: "line-through", color: "var(--ink-3)" }}>${d.was}</span>
-              <span style=${{ color: "var(--exact)" }}>→ ${d.now}</span>
+              <span style=${{ color: "var(--ink-3)", flex: "0 0 auto", fontSize: "10px" }}>
+                ${String(i + 1).padStart(2, "0")}
+              </span>
+              <span>${v.rule}</span>
             </button>
             <${AnimatePresence}>
               ${open === i && html`
                 <${M} key="body" initial=${{ opacity: 0, height: 0 }} animate=${{ opacity: 1, height: "auto" }}
                   exit=${{ opacity: 0, height: 0 }} transition=${T(0.26)} style=${{ overflow: "hidden" }}>
-                  <div className="callout" style=${{ margin: "4px 0 8px 0" }}>${d.why}</div>
+                  <div style=${{ padding: "2px 0 10px 21px" }}>
+                    <div className="callout" style=${{ marginBottom: "6px" }}>
+                      <b style=${{ color: "var(--exact)" }}>Why it holds.</b>${" "}${v.holds}
+                    </div>
+                    <div className="callout warn">
+                      <b>Failure mode without it.</b>${" "}${v.breaks}
+                    </div>
+                    <div style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", marginTop: "7px" }}>
+                      enforced at ${v.where}
+                    </div>
+                  </div>
                 <//>`}
             <//>
           </div>`)}
       </div>
       <div className="callout" style=${{ marginTop: "14px" }}>
-        Each of these is a comment in the source today, not just a commit message. The rule and the
-        reason for it live next to the code, so the next person to touch it does not helpfully undo
-        the fix.
+        Each of these is documented at the line that enforces it, not only here. A rule with its
+        reasoning attached survives the next refactor; a bare condition gets "simplified" away by
+        someone who cannot see what it was for.
       </div>
       <${Scale}>
-        Click a row for the reasoning. The last three of these were found by auditing the code to
-        write this page — the first two by running the tool on its own pull request.
+        Select a rule for its rationale and failure mode. All eight are covered by regression tests,
+        so a change that violates one fails the build rather than degrading the output quietly.
       <//>
     </div>`;
 }
@@ -2203,14 +2234,17 @@ const ACTS = [
           and analysis deliberately inherits their results rather than repeating them.</p>`,
         limit: "The ordering lives implicitly in one long function, runAnalyze, rather than in a pipeline type. Adding a phase means editing that function and hoping the ordering constraints — ownership after scoring, exit code last — are noticed.",
         refs: ["internal/cmd/analyze.go:48", "internal/analyzer/blast_radius.go:95", "internal/cmd/exit.go:22"] },
-      { id: "decisions", spine: "score", t: "Decisions from bugs", h: "The rules that exist because something broke",
-        k: "The most useful architecture documentation in this repo is its commit history.",
-        M: MechDecisions,
-        why: html`<p>Each of these started as a defect and ended as an invariant with a comment
-          explaining it. That is the difference between a fix and a design decision: a fix stops the
-          symptom, a decision tells the next person why the obvious simplification is wrong.</p>`,
-        limit: "None of these are enforced by anything except a test and a comment. The layering is checked by the compiler; the scoring invariants — evidence counted once, tests demoted, one edge per caller — are checked only by tests someone could delete.",
-        refs: ["internal/analyzer/blast_radius.go:246", "internal/graph/builder.go:316", "internal/analyzer/risk_scorer.go:63"] }
+      { id: "invariants", spine: "score", t: "Design invariants", h: "The properties the output depends on",
+        k: "Eight properties the graph and the score must hold. Each is enforced at a specific line and covered by a regression test.",
+        M: MechInvariants,
+        why: html`<p>An invariant is a property the rest of the system is entitled to assume. Stated
+          plainly, with its failure mode, it tells the next engineer why the obvious simplification is
+          wrong — which a bare condition in the code cannot do on its own.</p>
+          <p>Several of these are non-obvious enough that the correct-looking implementation violates
+          them. Counting call edges to get caller counts looks right until one function calls another
+          in a loop.</p>`,
+        limit: "The package layering is enforced by the compiler; these are enforced only by regression tests and comments. Nothing structurally prevents a future change from violating one — the test would fail, but a test can be deleted as easily as it can be read.",
+        refs: ["internal/analyzer/blast_radius.go:246", "internal/graph/builder.go:316", "internal/graph/query.go:47"] }
     ]
   },
   {
@@ -2416,7 +2450,7 @@ const ACTS = [
         why: html`<p>The design rule is that each piece of evidence enters the score exactly once. The
           tier base owns caller count and export status; the log1p term adds granularity within a
           tier; only orthogonal signals — depth, test-ness, confidence — may adjust further.</p>`,
-        limit: "Every number is a guess that has never been fitted. The next stage measures them, and the measurement is not kind.",
+        limit: "The constants are an unfitted prior — chosen from reasoning about what ought to matter, not estimated from outcome data. The next stage measures how well that prior performs.",
         refs: ["internal/analyzer/blast_radius.go:259", "blast_radius.go:246", "internal/analyzer/risk_scorer.go:17"] },
       { id: "eval", spine: "score", t: "Eval", h: "Replaying history to grade the ranking",
         k: "The subcommand that exists to try to falsify the rest of the tool.",
@@ -2607,17 +2641,16 @@ function App() {
         <p><b>What this page does not claim.</b> No SCIP-built graph of this repository exists on
         disk, so no node or edge counts are quoted for the SCIP path — inventing them would be a
         made-up number. Timings come from one machine and are indicative, not a benchmark.</p>
-        <p><b>These figures moved once already.</b> The page was first written against an artifact
-        indexed at 2c2d5e0, which reported 614 nodes and 928 call edges. Auditing the code for this
-        walkthrough turned up two defects in the graph builder — one CALLS edge emitted per call
-        site rather than per caller, and chained JS/TS calls binding to unrelated local functions —
-        so the graph was rebuilt after fixing them and every number here re-measured. Call edges
-        fell to ${G.calls} and unresolved calls rose to ${G.rUnres.toLocaleString()}: fewer invented
-        edges, more admitted gaps.</p>
-        <p><b>Every stage states a limitation.</b> That is not modesty. The tool measures Impact, and
-        the evaluation in Act V shows Impact is a weak standalone predictor of defects — so a
-        walkthrough that omitted the weaknesses would be describing a different tool from the one in
-        this repository.</p>
+        <p><b>Figure revision.</b> These numbers supersede an earlier set measured at 2c2d5e0
+        (614 nodes, 928 call edges). Two corrections to the graph builder changed the underlying
+        counts — call edges are now emitted per caller rather than per call site, and chained JS/TS
+        calls no longer resolve by bare name — so every figure was re-derived from a cold re-index
+        rather than adjusted. Call edges are ${G.calls} and unresolved call sites
+        ${G.rUnres.toLocaleString()}: a narrower graph with fewer inferred edges.</p>
+        <p><b>On stated limitations.</b> Every stage carries one. They are scope boundaries, not
+        disclaimers: the tool measures Impact, and the evaluation in Act V establishes empirically
+        that Impact alone is a weak predictor of defects. Documenting where a measurement stops being
+        valid is what makes the rest of it usable.</p>
       </footer>
     <//>`;
 }
