@@ -12,8 +12,9 @@
 # TraceScope data
 .tracescope/
 
-# Go
-vendor/
+# Go — anchored to the module root. Unanchored, this also swallowed
+# docs/vendor/, which holds the walkthrough's bundled runtime and must ship.
+/vendor/
 
 # IDE
 .idea/

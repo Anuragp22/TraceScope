@@ -225,12 +225,12 @@
 
 <div id="boot">
   <h2>Loading the walkthrough…</h2>
-  <p>This page pulls React, Framer Motion and htm from esm.sh as ES modules. If this message is still
-  here after a few seconds, the module graph did not evaluate.</p>
+  <p>React, Framer Motion and htm are bundled into <code>vendor/deps.js</code> beside this file — no
+  network needed. If this message is still here after a few seconds, the module did not evaluate.</p>
   <ul>
     <li>Serve the folder over HTTP — <code>python -m http.server</code> — module scripts do not run from <code>file://</code>.</li>
     <li>Check the browser console for the first failing import.</li>
-    <li>Confirm <code>esm.sh</code> is reachable from this network.</li>
+    <li>Confirm <code>vendor/deps.js</code> was copied along with this page.</li>
   </ul>
 </div>
 
@@ -247,9 +247,9 @@
         '<pre style="white-space:pre-wrap;color:#B83248">' + String(detail).slice(0, 600) + '</pre>' +
         '<p>Checklist:</p><ul>' +
         '<li>Served over HTTP, not opened as a file? Module scripts need a server.</li>' +
-        '<li>Is esm.sh reachable? Every dependency loads from that host.</li>' +
-        '<li>Any content blocker or proxy stripping the importmap?</li>' +
-        '<li>Browser supports import maps? (Chrome 89+, Firefox 108+, Safari 16.4+)</li>' +
+        '<li>Is <code>vendor/deps.js</code> next to this file? It ships alongside the page.</li>' +
+        '<li>Did the folder get copied without its <code>vendor/</code> subfolder?</li>' +
+        '<li>Browser supports ES modules? (any browser from 2018 onward)</li>' +
         '</ul>';
     }
     window.addEventListener('error', function (e) { fail('A script error stopped the page.', e.message || e.error); });
@@ -257,24 +257,16 @@
   })();
 </script>
 
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.3.1",
-    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
-    "react-dom": "https://esm.sh/react-dom@18.3.1",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
-    "framer-motion": "https://esm.sh/framer-motion@12.23.12?external=react,react-dom&deps=motion-dom@12.23.12,motion-utils@12.23.6",
-    "htm": "https://esm.sh/htm@3.1.1"
-  }
-}
-</script>
 
 <script type="module">
-import React, { useState, useMemo, useEffect } from "react";
-import { createRoot } from "react-dom/client";
-import { motion, AnimatePresence, useScroll, useSpring } from "framer-motion";
-import htm from "htm";
+// React, React DOM, Framer Motion and htm, bundled into one local file by
+// esbuild (docs/vendor/deps.js). Everything this page needs ships with it: no
+// CDN, no importmap, no network. Open it on a laptop in aeroplane mode and it
+// still runs — which is the only sane assumption for a live demo.
+import {
+  React, useState, useMemo, useEffect,
+  createRoot, motion, AnimatePresence, useScroll, useSpring, htm
+} from "./vendor/deps.js";
 
 const html = htm.bind(React.createElement);
 const M = motion.div, MS = motion.span, MOL = motion.ol, MLI = motion.li;
@@ -1674,6 +1666,276 @@ function MechIncremental() {
     </div>`;
 }
 
+
+/* ══════════════════ ACT II — architecture ══════════════════ */
+
+// Derived from the production imports of every .go file in the repo.
+const ARCH = {
+  layers: [
+    { n: 0, label: "leaves — depend on nothing internal", pkgs: [
+      { p: "parser", c: 9, t: 8, ext: "go-tree-sitter" },
+      { p: "diff", c: 1, t: 1, ext: "go-diff" },
+      { p: "config", c: 1, t: 1, ext: "yaml.v3" }
+    ] },
+    { n: 1, label: "the model", pkgs: [
+      { p: "graph", c: 7, t: 8, deps: ["parser"], ext: "scip" }
+    ] },
+    { n: 2, label: "the decision", pkgs: [
+      { p: "analyzer", c: 4, t: 6, deps: ["diff", "graph"] }
+    ] },
+    { n: 3, label: "consumers — read the decision, never make one", pkgs: [
+      { p: "ownership", c: 3, t: 2, deps: ["analyzer", "diff"] },
+      { p: "output", c: 6, t: 2, deps: ["analyzer", "graph", "ownership"] },
+      { p: "server", c: 1, t: 1, deps: ["analyzer", "diff", "graph", "ownership"] },
+      { p: "eval", c: 1, t: 1, deps: ["analyzer", "diff", "graph", "parser"] }
+    ] },
+    { n: 4, label: "wiring", pkgs: [
+      { p: "cmd", c: 11, t: 4, deps: ["everything above"] }
+    ] }
+  ],
+  seams: [
+    { t: "parser.FileResult", from: "parser", to: "graph",
+      d: "functions, classes, imports, call sites — the same shape whether go/ast or tree-sitter produced it" },
+    { t: "graph.GraphData", from: "graph", to: "analyzer · output · server · eval",
+      d: "nodes and edges plus provenance. Serialisable, so it is also the on-disk artifact" },
+    { t: "analyzer.AnalysisResult", from: "analyzer", to: "output · server",
+      d: "one struct every surface renders. Nothing is recomputed per surface, so they cannot disagree" }
+  ],
+  fanIn: [
+    { p: "analyzer", by: 5 }, { p: "diff", by: 5 }, { p: "graph", by: 5 },
+    { p: "ownership", by: 3 }, { p: "parser", by: 3 }
+  ]
+};
+
+const SEQUENCE = [
+  { pkg: "cmd/tracescope", call: "main()", note: "one job: turn an error into an exit code" },
+  { pkg: "internal/cmd", call: "runAnalyze", note: "merge config with flags, read the diff from stdin" },
+  { pkg: "internal/diff", call: "ParseUnifiedDiff", note: "hunks → changed line ranges" },
+  { pkg: "internal/graph", call: "Store.Load", note: "the saved graph — no parsing happens here" },
+  { pkg: "internal/analyzer", call: "MapDiffToFunctions", note: "line ranges → seed functions" },
+  { pkg: "internal/graph", call: "ComputeBlastRadius", note: "reverse BFS, bounded at depth 5" },
+  { pkg: "internal/analyzer", call: "Score + computeReviewScore", note: "tier, then ranking key" },
+  { pkg: "internal/ownership", call: "ResolveOwnership", note: "only with --owners; shells out to git" },
+  { pkg: "internal/output", call: "PrintAnalysis", note: "render — terminal, JSON, markdown or HTML" },
+  { pkg: "internal/cmd", call: "ResolveExit", note: "0 · 1 · 2 · 3, and the process ends" }
+];
+
+const DECISIONS = [
+  { c: "372bb5f", was: "one CALLS edge per call site", now: "one per (caller, callee) pair",
+    why: "caller counts are edge counts, so 11 calls from one function read as 11 callers" },
+  { c: "5e2145c", was: "a.b.c() lost its receiver", now: "the object chain is flattened",
+    why: "an empty receiver fell through to bare-name matching and invented an edge, marked EXACT" },
+  { c: "9c8a9ba", was: "every Go TestXxx scored MEDIUM", now: "a test with no production callers is LOW",
+    why: "test names are exported, so the export fallback floated them to the top of the review list" },
+  { c: "24f1b74", was: "caller count added twice", now: "the tier owns it, log1p refines within the tier",
+    why: "a linear bonus plus the tier double-counted, and saturated so 6 and 600 callers tied" },
+  { c: "f84e4cd", was: "CALLS edges followed into class nodes", now: "into function nodes only",
+    why: "SCIP emits a CALLS edge to referenced types; shared types became hubs that flooded the radius" },
+  { c: "2c2d5e0", was: "deletion-only hunks produced no range", now: "a zero-width anchor at the deletion point",
+    why: "deleted lines are absent from the new file, so the enclosing function was never seeded" },
+  { c: "c768dc8", was: "the graph was anonymous", now: "it records its commit and remote",
+    why: "line numbers are meaningless without knowing the revision they came from" },
+  { c: "5d31fc8", was: "a failed PR comment failed the run", now: "it warns and continues",
+    why: "the exit code is the contract; the comment is a side effect and must not mask the signal" }
+];
+
+function MechPackages() {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    setShown(0);
+    const t = [400, 900, 1400, 1900, 2400].map((ms, i) => setTimeout(() => setShown(i + 1), ms));
+    return () => t.forEach(clearTimeout);
+  }, []);
+  return html`
+    <div>
+      <${Lbl}>11 packages, five layers, no cycles<//>
+      <div className="stack" style=${{ gap: "12px" }}>
+        ${ARCH.layers.map((L, li) => html`
+          <${M} key=${L.n}
+            initial=${{ opacity: 0, x: -10 }}
+            animate=${{ opacity: li < shown ? 1 : 0.14, x: 0 }} transition=${T(0.4)}>
+            <div className="row" style=${{ alignItems: "flex-start" }}>
+              <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)",
+                              width: "20px", flex: "0 0 auto", paddingTop: "6px" }}>L${L.n}</span>
+              <div style=${{ minWidth: 0 }}>
+                <div className="row">
+                  ${L.pkgs.map(p => html`
+                    <span key=${p.p} className=${"node" + (L.n === 2 ? " seed" : L.n === 0 ? " exact" : "")}>
+                      ${p.p}
+                      <span style=${{ color: "var(--ink-3)", fontSize: "9.5px" }}>${p.c}+${p.t}</span>
+                    </span>`)}
+                </div>
+                <div style=${{ fontSize: "11.5px", color: "var(--ink-3)", marginTop: "4px" }}>${L.label}</div>
+              </div>
+            </div>
+          <//>`)}
+      </div>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        Dependencies point one way only — downward on this diagram. <b>parser</b>, <b>diff</b> and
+        ${" "}<b>config</b> import nothing internal at all, which is why they are the easiest packages to
+        test and the ones with the densest test files.
+      </div>
+      <${Scale}>
+        Counts are ${"code"}+${"test"} files per package, read from the repository. The layering is
+        derived from actual production imports, not drawn by hand — and a cycle check over those
+        imports finds <b>none</b>.
+      <//>
+    </div>`;
+}
+
+function MechSeams() {
+  return html`
+    <div>
+      <${Lbl}>three structs carry everything across a boundary<//>
+      <${M} className="stack" variants=${listV} initial="hidden" animate="show" style=${{ gap: "14px" }}>
+        ${ARCH.seams.map(s => html`
+          <${M} key=${s.t} variants=${itemV}>
+            <div className="row">
+              <span className="node">${s.from}</span>
+              <span style=${{ color: "var(--seed)", fontFamily: "var(--mono)", fontSize: "11px" }}>→</span>
+              <span className="node seed">${s.t}</span>
+              <span style=${{ color: "var(--seed)", fontFamily: "var(--mono)", fontSize: "11px" }}>→</span>
+              <span className="node">${s.to}</span>
+            </div>
+            <div style=${{ fontSize: "12px", color: "var(--ink-3)", marginTop: "4px", paddingLeft: "2px" }}>${s.d}</div>
+          <//>`)}
+      <//>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        The pattern is the same each time: a <b>plain data struct</b>, no interfaces, no behaviour. A
+        producer fills it, consumers read it. That is why a second parser front end could be added
+        without the graph builder changing, and why four output surfaces exist without the analyzer
+        knowing any of them are there.
+      </div>
+      <${Scale}>
+        The middle one doubles as the on-disk format. <b>GraphData</b> is what
+        ${" "}<b>graph.json</b> contains — the wire format and the in-memory model are the same type, which
+        is why the artifact is inspectable and why loading it needs no translation layer.
+      <//>
+    </div>`;
+}
+
+function MechCycle() {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setBroken(true), 1400); return () => clearTimeout(t); }, []);
+  return html`
+    <div>
+      <${Lbl}>the cycle this codebase would otherwise have<//>
+      <div className="row" style=${{ marginBottom: "6px" }}>
+        <span className="node">ownership</span>
+        <span style=${{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--exact)" }}>imports →</span>
+        <span className="node">analyzer</span>
+      </div>
+      <div className="row">
+        <span className="node">analyzer</span>
+        <span style=${{ fontFamily: "var(--mono)", fontSize: "11px",
+                        color: broken ? "var(--ink-3)" : "var(--alarm)" }}>
+          ${broken ? "does NOT import" : "wants to import →"}
+        </span>
+        <${M} animate=${{ opacity: broken ? 0.4 : 1 }} transition=${T(0.4)}>
+          <span className=${"node" + (broken ? " dead" : " heur")}>ownership</span>
+        <//>
+      </div>
+      <${AnimatePresence}>
+        ${broken && html`
+          <${M} key="fix" initial=${{ opacity: 0, y: 8 }} animate=${{ opacity: 1, y: 0 }} transition=${T(0.4)}
+            style=${{ marginTop: "16px" }}>
+            <pre className="code">${`type AnalysisResult struct {
+    ...
+    Ownership `}<s>interface{}</s>${` \`json:"ownership,omitempty"\`
+}
+
+`}<i>// and every consumer pays for it:</i>${`
+if oi, ok := result.Ownership.(*ownership.OwnershipInfo); ok {`}</pre>
+          <//>`}
+      <//>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        <b>ResolveOwnership</b> takes a slice of the analyzer's own AffectedFunction, so ownership
+        depends on analyzer. For the analyzer to hold the result, it would have to depend on ownership
+        — a cycle, which Go rejects outright at compile time.
+      </div>
+      <div className="callout bad" style=${{ marginTop: "10px" }}>
+        The escape hatch is an <b>interface{}</b> field and a runtime type assertion in every consumer.
+        It compiles, and it costs the one thing the rest of these seams give you: the compiler no
+        longer knows what is in that field. Passing plain file paths into ownership instead of the
+        analyzer's structs would have removed the dependency entirely and kept the field typed.
+      </div>
+    </div>`;
+}
+
+function MechSequence() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    setStep(0);
+    const t = SEQUENCE.map((_, i) => setTimeout(() => setStep(i + 1), 380 + i * 300));
+    return () => t.forEach(clearTimeout);
+  }, []);
+  return html`
+    <div>
+      <${Lbl}>git diff | tracescope analyze — every package it touches, in order<//>
+      <div className="stack" style=${{ gap: "6px" }}>
+        ${SEQUENCE.map((s, i) => html`
+          <${M} key=${s.call}
+            initial=${{ opacity: 0, x: -8 }}
+            animate=${{ opacity: i < step ? 1 : 0.16, x: 0 }} transition=${T(0.3)}
+            className="row" style=${{ alignItems: "baseline" }}>
+            <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "18px" }}>
+              ${String(i + 1).padStart(2, "0")}
+            </span>
+            <span className=${"node" + (i === step - 1 ? " seed" : "")} style=${{ minWidth: "148px" }}>${s.pkg}</span>
+            <span style=${{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--ink)", minWidth: "180px" }}>${s.call}</span>
+            <span style=${{ fontSize: "11.5px", color: "var(--ink-3)" }}>${s.note}</span>
+          <//>`)}
+      </div>
+      <div className="callout" style=${{ marginTop: "16px" }}>
+        Control returns to <b>internal/cmd</b> three times — it is the only package that knows the
+        order. Nothing below it calls anything above it, so each of these steps can be tested by
+        handing it a struct and reading one back.
+      </div>
+      <${Scale}>
+        Ten calls, four of them optional depending on flags. The expensive one — parsing every file in
+        the repository — is <b>not on this list</b>: it already happened at index time.
+      <//>
+    </div>`;
+}
+
+function MechDecisions() {
+  const [open, setOpen] = useState(0);
+  return html`
+    <div>
+      <${Lbl}>eight commits where a bug became a rule<//>
+      <div className="stack" style=${{ gap: "4px" }}>
+        ${DECISIONS.map((d, i) => html`
+          <div key=${d.c}>
+            <button type="button" onClick=${() => setOpen(open === i ? -1 : i)}
+              style=${{ display: "flex", gap: "9px", alignItems: "baseline", width: "100%", textAlign: "left",
+                        background: "none", border: "none", padding: "5px 0", cursor: "pointer",
+                        fontFamily: "var(--mono)", fontSize: "11.5px",
+                        color: open === i ? "var(--ink)" : "var(--ink-2)" }}>
+              <span style=${{ color: "var(--seed)", flex: "0 0 auto" }}>${d.c}</span>
+              <span style=${{ textDecoration: "line-through", color: "var(--ink-3)" }}>${d.was}</span>
+              <span style=${{ color: "var(--exact)" }}>→ ${d.now}</span>
+            </button>
+            <${AnimatePresence}>
+              ${open === i && html`
+                <${M} key="body" initial=${{ opacity: 0, height: 0 }} animate=${{ opacity: 1, height: "auto" }}
+                  exit=${{ opacity: 0, height: 0 }} transition=${T(0.26)} style=${{ overflow: "hidden" }}>
+                  <div className="callout" style=${{ margin: "4px 0 8px 0" }}>${d.why}</div>
+                <//>`}
+            <//>
+          </div>`)}
+      </div>
+      <div className="callout" style=${{ marginTop: "14px" }}>
+        Each of these is a comment in the source today, not just a commit message. The rule and the
+        reason for it live next to the code, so the next person to touch it does not helpfully undo
+        the fix.
+      </div>
+      <${Scale}>
+        Click a row for the reasoning. The last three of these were found by auditing the code to
+        write this page — the first two by running the tool on its own pull request.
+      <//>
+    </div>`;
+}
+
 /* ══════════════════ stage definitions ══════════════════ */
 
 const ACTS = [
@@ -1749,7 +2011,64 @@ const ACTS = [
     ]
   },
   {
-    id: "build", label: "II · Build the graph",
+    id: "arch", label: "II · Architecture",
+    title: "Eleven packages, one direction of travel",
+    stages: [
+      { id: "packages", t: "Package map", h: "What the pieces are, and which way they point",
+        k: "Before any single mechanism: the shape of the thing. Five layers, and dependencies that only ever point downward.",
+        M: MechPackages,
+        why: html`<p>The layering is not decoration — it is enforced by the compiler. Go refuses an
+          import cycle outright, so a package can only reach for things beneath it. That constraint is
+          why <strong>parser</strong> can be swapped, <strong>output</strong> can grow a fourth
+          surface, and neither change reaches the other.</p>
+          <p>The three leaf packages import nothing internal at all, which makes them trivially
+          testable — and unsurprisingly they carry the densest test files in the repo.</p>`,
+        limit: "internal/cmd imports every other package and holds eleven files of flag wiring, config merging and orchestration. It is the one place the layering buys nothing, and the obvious candidate for splitting if the command set grows further.",
+        refs: ["cmd/tracescope/main.go:10", "internal/cmd/root.go:17", "internal/parser/parser.go"] },
+      { id: "seams", t: "The seams", h: "Three structs carry everything across a boundary",
+        k: "Layers are only as good as what passes between them. Here it is three plain structs and nothing else.",
+        M: MechSeams,
+        why: html`<p>Each boundary is a <strong>data</strong> contract, not a behavioural one — no
+          interfaces, no callbacks, no inversion of control. A producer fills a struct, consumers read
+          it. That keeps the seams obvious and the tests cheap: hand a struct in, assert on the struct
+          that comes out.</p>
+          <p><strong>GraphData</strong> pulls double duty as the on-disk format, so the wire format and
+          the in-memory model cannot drift apart.</p>`,
+        limit: "Because GraphData is also the serialised artifact, every field added for internal convenience lands in the public JSON — ParsedAt is written on every index and read by nothing.",
+        refs: ["internal/parser/parser.go FileResult", "internal/graph/types.go:98", "internal/analyzer/blast_radius.go:37"] },
+      { id: "cycle", t: "The cycle", h: "Where the layering had to be bought with a type hole",
+        k: "The dependency graph is acyclic. One field is the reason it can be.",
+        M: MechCycle,
+        why: html`<p>Ownership needs the analyzer's types to do its job, so it imports analyzer. The
+          result then needs to travel back inside AnalysisResult — which would make analyzer import
+          ownership, and close a cycle Go will not compile.</p>
+          <p>The chosen fix is an untyped field plus a type assertion at each read. It is worth knowing
+          this is a <em>trade</em>, not a free win: the cycle is gone, and so is the compiler's
+          knowledge of what that field holds.</p>`,
+        limit: "Every consumer of the field repeats the same assertion, and a wrong type fails silently at runtime rather than loudly at build time. Passing plain paths into ownership instead of analyzer structs would have removed the dependency and kept the field typed.",
+        refs: ["internal/analyzer/blast_radius.go:48", "internal/ownership/ownership.go:16", "internal/output/github.go:106"] },
+      { id: "sequence", t: "One run, end to end", h: "Every package a single analyze touches",
+        k: "The same pipeline the later acts take apart, seen as a call sequence across module boundaries.",
+        M: MechSequence,
+        why: html`<p>Ten calls, in one direction, with control returning to <strong>internal/cmd</strong>
+          between phases. Nothing below cmd reaches upward, which is what makes each phase testable in
+          isolation.</p>
+          <p>Note what is absent: no parsing, no filesystem walk, no network. Those belong to indexing,
+          and analysis deliberately inherits their results rather than repeating them.</p>`,
+        limit: "The ordering lives implicitly in one long function, runAnalyze, rather than in a pipeline type. Adding a phase means editing that function and hoping the ordering constraints — ownership after scoring, exit code last — are noticed.",
+        refs: ["internal/cmd/analyze.go:48", "internal/analyzer/blast_radius.go:95", "internal/cmd/exit.go:22"] },
+      { id: "decisions", t: "Decisions from bugs", h: "The rules that exist because something broke",
+        k: "The most useful architecture documentation in this repo is its commit history.",
+        M: MechDecisions,
+        why: html`<p>Each of these started as a defect and ended as an invariant with a comment
+          explaining it. That is the difference between a fix and a design decision: a fix stops the
+          symptom, a decision tells the next person why the obvious simplification is wrong.</p>`,
+        limit: "None of these are enforced by anything except a test and a comment. The layering is checked by the compiler; the scoring invariants — evidence counted once, tests demoted, one edge per caller — are checked only by tests someone could delete.",
+        refs: ["internal/analyzer/blast_radius.go:246", "internal/graph/builder.go:316", "internal/analyzer/risk_scorer.go:63"] }
+    ]
+  },
+  {
+    id: "build", label: "III · Build the graph",
     title: "From a directory of files to a graph bound to one commit",
     stages: [
       { id: "walk", t: "Walk", h: "Find the source, skip the noise",
@@ -1828,7 +2147,7 @@ const ACTS = [
     ]
   },
   {
-    id: "pr", label: "III · Analyse a PR",
+    id: "pr", label: "IV · Analyse a PR",
     title: "A diff arrives, and something has to decide what it touches",
     stages: [
       { id: "diff", t: "Diff", h: "Hunks into line ranges", k: "The input is a unified diff on stdin. Nothing else.",
@@ -1916,7 +2235,7 @@ const ACTS = [
     ]
   },
   {
-    id: "hood", label: "IV · Under the hood",
+    id: "hood", label: "V · Under the hood",
     title: "The mechanisms that decide whether any of this is true",
     stages: [
       { id: "frontends", t: "Front ends", h: "A type checker, or a syntax tree",
