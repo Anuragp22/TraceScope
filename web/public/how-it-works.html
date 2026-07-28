@@ -2094,19 +2094,8 @@ const ACTS = [
     label: "I · The system",
     title: "The parts, and how they connect",
     stages: [
-      { id: "run", spine: "files", t: "What it does", h: "Two commands, and that is the interface",
-        k: "You index once. After that you pipe a diff in as often as you like.",
-        M: MechRun,
-        why: html`<p>Indexing is the expensive half. It opens every file in the repository. Analysis is
-          the cheap half: it reads the saved graph and walks it. Keeping them apart means a pull
-          request does not pay for re-reading code that has not changed.</p>
-          <p>Analysis takes a diff on standard input and nothing else. No branch name, no remote, no
-          token. Those are only needed if you also want a comment posted.</p>`,
-        limit: "The graph is a snapshot, so it can describe a revision you are no longer on. Analysis refuses to run in that case instead of reporting against shifted line numbers. Outside a git checkout there is no commit to compare, so the check cannot fire at all.",
-        refs: ["internal/cmd/index.go:36", "internal/cmd/analyze.go:49"] },
-
       { id: "map", spine: "graph", t: "The whole system", h: "Every part, on one diagram",
-        k: "Nine boxes. Everything else on this page is a detail inside one of them.",
+        k: "Start here. Nine boxes, and every other page in this walkthrough is a detail inside one of them.",
         M: MechSystem,
         why: html`<p>Two commands, one file between them. <strong>index</strong> writes graph.json,
           ${" "}<strong>analyze</strong> reads it. The four smaller commands read the same file and write
@@ -2115,6 +2104,17 @@ const ACTS = [
           between runs beyond that one file.</p>`,
         limit: "Everything depends on one artifact, so everything inherits its faults. If the graph is missing an edge, the blast radius is missing a result, the hotspot ranking is missing a caller, and nothing anywhere reports a gap.",
         refs: ["internal/graph/store.go:20", "internal/cmd/analyze.go:112"] },
+
+      { id: "run", spine: "files", t: "What it does", h: "Two commands, and that is the interface",
+        k: "Those two commands in practice. You index once, then pipe a diff in as often as you like.",
+        M: MechRun,
+        why: html`<p>Indexing is the expensive half. It opens every file in the repository. Analysis is
+          the cheap half: it reads the saved graph and walks it. Keeping them apart means a pull
+          request does not pay for re-reading code that has not changed.</p>
+          <p>Analysis takes a diff on standard input and nothing else. No branch name, no remote, no
+          token. Those are only needed if you also want a comment posted.</p>`,
+        limit: "The graph is a snapshot, so it can describe a revision you are no longer on. Analysis refuses to run in that case instead of reporting against shifted line numbers. Outside a git checkout there is no commit to compare, so the check cannot fire at all.",
+        refs: ["internal/cmd/index.go:36", "internal/cmd/analyze.go:49"] },
 
       { id: "artifact", spine: "graph", t: "The file it writes", h: "Everything it knows, in one JSON file",
         k: "Not a database and not a running service. A file you can open, diff and delete.",
