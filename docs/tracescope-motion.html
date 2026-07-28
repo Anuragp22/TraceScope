@@ -171,6 +171,19 @@
 
   /* ---------- mechanism atoms ---------- */
   .scroll-x{overflow-x:auto;max-width:100%}
+
+  /* the spine: the whole pipeline, always visible, current block lit */
+  .spine-wrap{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:13px 14px;margin:0 0 12px}
+  .spine{display:flex;align-items:stretch;gap:0;padding-bottom:2px}
+  .spine-block{position:relative;flex:1 1 0;min-width:108px;border:1px solid var(--line);
+    border-radius:var(--r);padding:7px 9px;background:var(--paper);display:flex;
+    flex-direction:column;gap:2px}
+  .spine-block b{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:-0.01em}
+  .spine-block span{font-family:var(--mono);font-size:9px;color:var(--ink-3);line-height:1.35}
+  .spine-link{flex:0 0 14px;align-self:center;height:1px}
+  .spine-dot{position:absolute;left:0;right:0;top:-1px;height:2px;background:var(--seed);
+    border-radius:2px}
   .node{font-family:var(--mono);font-size:11.5px;padding:5px 9px;border:1px solid var(--line);
     border-radius:var(--r);background:var(--paper);display:inline-flex;align-items:center;gap:7px;
     white-space:nowrap}
@@ -300,7 +313,9 @@ const G = {
   source: "parser", coldIndexSec: 9.6
 };
 G.callSites = G.rExact + G.rHeur + G.rAmb + G.rUnres;
-G.resolvedPct = Math.round((G.calls / G.callSites) * 1000) / 10;
+// Resolved call SITES over total call sites. Not G.calls, which is a deduped
+// edge count — dividing an edge count by a site count mixes units.
+G.resolvedPct = Math.round(((G.rExact + G.rHeur) / G.callSites) * 1000) / 10;
 
 const EVAL = {
   repo: "gin-gonic/gin", n: 300, positives: 59, base: 19.7, window: 30,
@@ -1667,6 +1682,156 @@ function MechIncremental() {
 }
 
 
+
+const MG = motion.g, MPath = motion.path, MLine = motion.line;
+
+/* ══════════════════ the spine — one story, start to end ══════════════════ */
+
+// The whole tool as eight blocks. Every stage lights the block it belongs to,
+// so the hero answers "where am I in the story" at all times.
+const SPINE = [
+  { id: "files", t: "source files", s: "93 files" },
+  { id: "parse", t: "parse", s: "go/ast · tree-sitter" },
+  { id: "graph", t: "graph.json", s: "662 nodes · 1,483 edges" },
+  { id: "diff", t: "your diff", s: "hunks → ranges" },
+  { id: "radius", t: "blast radius", s: "reverse BFS, depth 5" },
+  { id: "score", t: "rank", s: "tier + review score" },
+  { id: "output", t: "surfaces", s: "terminal · JSON · PR · HTML" },
+  { id: "exit", t: "exit code", s: "0 · 1 · 2 · 3" }
+];
+
+function SystemSpine({ active, actId }) {
+  const wide = actId === "arch"; // architecture speaks about the whole system
+  return html`
+    <div className="spine-wrap">
+      <div className="spine scroll-x">
+        ${SPINE.map((b, i) => html`
+          <${React.Fragment} key=${b.id}>
+            ${i > 0 && html`
+              <${M} className="spine-link"
+                animate=${{ background: (wide || SPINE.findIndex(x => x.id === active) >= i)
+                  ? "var(--seed)" : "var(--line)" }}
+                transition=${T(0.45)} />`}
+            <${M} className="spine-block"
+              animate=${{
+                borderColor: (wide || b.id === active) ? "var(--seed)" : "var(--line)",
+                color: (wide || b.id === active) ? "var(--ink)" : "var(--ink-3)",
+                scale: b.id === active ? 1.035 : 1
+              }}
+              transition=${T(0.4)}>
+              ${b.id === active && html`<${M} layoutId="spine-dot" className="spine-dot" transition=${T(0.4)} />`}
+              ${" "}<b>${b.t}</b>
+              <span>${b.s}</span>
+            <//>
+          <//>`)}
+      </div>
+    </div>`;
+}
+
+/* ══════════════════ architecture, as blocks and arrows ══════════════════ */
+
+// Fixed layout: dependents on top, leaves at the bottom, every arrow pointing
+// down. Coordinates are hand-placed so the arrows never cross a box.
+const ARCH_BOXES = [
+  { id: "cmd", label: "cmd", x: 210, y: 8, w: 120, sub: "11 files" },
+  { id: "ownership", label: "ownership", x: 16, y: 78, w: 108, sub: "3" },
+  { id: "output", label: "output", x: 136, y: 78, w: 96, sub: "6" },
+  { id: "server", label: "server", x: 244, y: 78, w: 88, sub: "1" },
+  { id: "eval", label: "eval", x: 344, y: 78, w: 84, sub: "1" },
+  { id: "analyzer", label: "analyzer", x: 168, y: 152, w: 116, sub: "4 files" },
+  { id: "graph", label: "graph", x: 168, y: 222, w: 116, sub: "7 files" },
+  { id: "parser", label: "parser", x: 40, y: 292, w: 104, sub: "9" },
+  { id: "diff", label: "diff", x: 172, y: 292, w: 84, sub: "1" },
+  { id: "config", label: "config", x: 284, y: 292, w: 92, sub: "1" }
+];
+const ARCH_ARROWS = [
+  ["ownership", "analyzer"], ["output", "analyzer"], ["server", "analyzer"], ["eval", "analyzer"],
+  ["analyzer", "graph"], ["analyzer", "diff"], ["graph", "parser"]
+];
+
+function ArchDiagram({ highlight }) {
+  const box = id => ARCH_BOXES.find(b => b.id === id);
+  const H = 26;
+  const path = (a, b) => {
+    const A = box(a), B = box(b);
+    const x1 = A.x + A.w / 2, y1 = A.y + H;
+    const x2 = B.x + B.w / 2, y2 = B.y;
+    const mid = y1 + (y2 - y1) / 2;
+    return `M ${x1} ${y1} L ${x1} ${mid} L ${x2} ${mid} L ${x2} ${y2}`;
+  };
+  const lit = id => !highlight || highlight === id;
+  return html`
+    <div className="scroll-x">
+      <svg viewBox="0 0 444 330" style=${{ width: "100%", minWidth: "420px", height: "auto" }}
+        role="img" aria-label="Package dependency diagram">
+        <defs>
+          <marker id="ah" markerWidth="7" markerHeight="7" refX="5.6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="var(--ink-3)" />
+          </marker>
+        </defs>
+        ${ARCH_ARROWS.map(([a, b], i) => html`
+          <${MPath} key=${a + b} d=${path(a, b)} fill="none"
+            stroke="var(--ink-3)" strokeWidth="1" markerEnd="url(#ah)" opacity="0.55" />`)}
+        <text x="222" y="64" textAnchor="middle" fill="var(--ink-3)"
+          style=${{ font: "9.5px var(--mono)", letterSpacing: "0.1em" }}>
+          cmd imports every package below it
+        </text>
+        ${ARCH_BOXES.map(b => html`
+          <${MG} key=${b.id} initial=${{ opacity: 0 }} animate=${{ opacity: lit(b.id) ? 1 : 0.28 }}
+            transition=${T(0.4)}>
+            <rect x=${b.x} y=${b.y} width=${b.w} height=${H} rx="3"
+              fill=${b.id === "analyzer" ? "var(--seed-bg)" : "var(--paper)"}
+              stroke=${b.id === "analyzer" ? "var(--seed)" : b.y === 292 ? "var(--exact)" : "var(--line)"}
+              strokeWidth="1" />
+            <text x=${b.x + b.w / 2} y=${b.y + 17} textAnchor="middle"
+              fill=${b.id === "analyzer" ? "var(--seed)" : "var(--ink)"}
+              style=${{ font: "11.5px var(--mono)" }}>${b.label}</text>
+            <text x=${b.x + b.w / 2} y=${b.y + 38} textAnchor="middle"
+              fill="var(--ink-3)" style=${{ font: "8.5px var(--mono)" }}>${b.sub}</text>
+          <//>`)}
+      </svg>
+    </div>`;
+}
+
+function FlowDiagram() {
+  const cols = [
+    { t: "parser", y: 10 }, { t: "graph", y: 10 }, { t: "analyzer", y: 10 }, { t: "output", y: 10 }
+  ];
+  const seams = [
+    { from: 0, to: 1, label: "FileResult" },
+    { from: 1, to: 2, label: "GraphData" },
+    { from: 2, to: 3, label: "AnalysisResult" }
+  ];
+  const W = 96, GAP = 44, H = 30;
+  const x = i => 8 + i * (W + GAP);
+  return html`
+    <div className="scroll-x">
+      <svg viewBox="0 0 ${8 + cols.length * (W + GAP)} 96" style=${{ width: "100%", minWidth: "460px", height: "auto" }}
+        role="img" aria-label="Data flow between packages">
+        <defs>
+          <marker id="ah2" markerWidth="7" markerHeight="7" refX="5.6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="var(--seed)" />
+          </marker>
+        </defs>
+        ${seams.map((s, i) => html`
+          <${React.Fragment} key=${s.label}>
+            <${MLine} x1=${x(s.from) + W} y1=${10 + H / 2} x2=${x(s.to) - 6} y2=${10 + H / 2}
+              stroke="var(--seed)" strokeWidth="1.2" markerEnd="url(#ah2)"
+              initial=${{ pathLength: 0 }} animate=${{ pathLength: 1 }} transition=${T(0.6, 0.25 + i * 0.2)} />
+            <text x=${x(s.from) + W + GAP / 2 - 3} y=${10 + H + 18} textAnchor="middle"
+              fill="var(--seed)" style=${{ font: "9.5px var(--mono)" }}>${s.label}</text>
+          <//>`)}
+        ${cols.map((c, i) => html`
+          <${React.Fragment} key=${c.t}>
+            <rect x=${x(i)} y=${c.y} width=${W} height=${H} rx="3"
+              fill="var(--paper)" stroke="var(--line)" strokeWidth="1" />
+            <text x=${x(i) + W / 2} y=${c.y + 19} textAnchor="middle" fill="var(--ink)"
+              style=${{ font: "11.5px var(--mono)" }}>${c.t}</text>
+          <//>`)}
+      </svg>
+    </div>`;
+}
+
 /* ══════════════════ ACT II — architecture ══════════════════ */
 
 // Derived from the production imports of every .go file in the repo.
@@ -1748,29 +1913,9 @@ function MechPackages() {
   }, []);
   return html`
     <div>
-      <${Lbl}>11 packages, five layers, no cycles<//>
-      <div className="stack" style=${{ gap: "12px" }}>
-        ${ARCH.layers.map((L, li) => html`
-          <${M} key=${L.n}
-            initial=${{ opacity: 0, x: -10 }}
-            animate=${{ opacity: li < shown ? 1 : 0.14, x: 0 }} transition=${T(0.4)}>
-            <div className="row" style=${{ alignItems: "flex-start" }}>
-              <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)",
-                              width: "20px", flex: "0 0 auto", paddingTop: "6px" }}>L${L.n}</span>
-              <div style=${{ minWidth: 0 }}>
-                <div className="row">
-                  ${L.pkgs.map(p => html`
-                    <span key=${p.p} className=${"node" + (L.n === 2 ? " seed" : L.n === 0 ? " exact" : "")}>
-                      ${p.p}
-                      <span style=${{ color: "var(--ink-3)", fontSize: "9.5px" }}>${p.c}+${p.t}</span>
-                    </span>`)}
-                </div>
-                <div style=${{ fontSize: "11.5px", color: "var(--ink-3)", marginTop: "4px" }}>${L.label}</div>
-              </div>
-            </div>
-          <//>`)}
-      </div>
-      <div className="callout" style=${{ marginTop: "16px" }}>
+      <${Lbl}>11 packages · arrows point from dependent to dependency<//>
+      <${ArchDiagram} />
+      <div className="callout" style=${{ marginTop: "14px" }}>
         Dependencies point one way only — downward on this diagram. <b>parser</b>, <b>diff</b> and
         ${" "}<b>config</b> import nothing internal at all, which is why they are the easiest packages to
         test and the ones with the densest test files.
@@ -1787,6 +1932,7 @@ function MechSeams() {
   return html`
     <div>
       <${Lbl}>three structs carry everything across a boundary<//>
+      <${FlowDiagram} />
       <${M} className="stack" variants=${listV} initial="hidden" animate="show" style=${{ gap: "14px" }}>
         ${ARCH.seams.map(s => html`
           <${M} key=${s.t} variants=${itemV}>
@@ -1940,10 +2086,10 @@ function MechDecisions() {
 
 const ACTS = [
   {
-    id: "orient", label: "I · What it is",
+    id: "orient", heroTitle: "What does this pull request actually touch?", heroThesis: "Start here. TraceScope is a command you pipe a diff into; everything else on this page explains what happens between that pipe and the exit code it returns.", label: "I · What it is",
     title: "A command you pipe a diff into, and the exit code it gives back",
     stages: [
-      { id: "run", t: "What you run", h: "Two commands, and that is the interface",
+      { id: "run", spine: "files", t: "What you run", h: "Two commands, and that is the interface",
         k: "Before any of the machinery: this is a CLI. You index once, then pipe git diff into it as often as you like.",
         M: MechRun,
         why: html`<p>The split is deliberate. <strong>Indexing is expensive and shared</strong> — it
@@ -1954,7 +2100,7 @@ const ACTS = [
           remote, or a GitHub token — those are optional extras for posting a comment.</p>`,
         limit: "The two-phase split is also the tool's main failure mode: the graph is a snapshot, and nothing forces you to refresh it. Analyse against a stale graph and line numbers have drifted, so the diff maps onto the wrong functions — quietly, with confident-looking output.",
         refs: ["internal/cmd/index.go:36", "internal/cmd/analyze.go:48", "internal/cmd/root.go:17"] },
-      { id: "artifact", t: "The artifact", h: "Everything it knows, in one JSON file",
+      { id: "artifact", spine: "graph", t: "The artifact", h: "Everything it knows, in one JSON file",
         k: "The graph is not a database or a daemon. It is a file you can open, diff and delete.",
         M: MechArtifact,
         why: html`<p>Keeping the whole index in one readable artifact is what makes the rest of the
@@ -1964,7 +2110,7 @@ const ACTS = [
           consumer can tell whether it describes the code in front of them.</p>`,
         limit: "Node paths are absolute, so the artifact is tied to the machine that built it: move it and ownership lookups and path matching degrade. Diagnostics are capped at 200 entries, so the issue list is a sample rather than a full account.",
         refs: ["internal/graph/types.go:98", "internal/graph/store.go:20", "internal/graph/builder.go:15"] },
-      { id: "reading", t: "Reading a result", h: "What a row is actually telling you",
+      { id: "reading", spine: "output", t: "Reading a result", h: "What a row is actually telling you",
         k: "Three separate judgements sit in every row, and conflating them is the easiest way to misread the output.",
         M: MechReading,
         why: html`<p>The <strong>tier</strong> answers how bad. The <strong>score</strong> answers what
@@ -1975,7 +2121,7 @@ const ACTS = [
           trust — you can open two files and check.</p>`,
         limit: "The terminal output prints raw fan-in under the heading \"callers\" while the reason string next to it quotes production callers. Two different numbers, the same word, on the same line — the markdown and JSON surfaces do not have this problem.",
         refs: ["internal/output/terminal.go:163", "internal/analyzer/blast_radius.go:22", "internal/analyzer/risk_scorer.go:40"] },
-      { id: "why", t: "why", h: "Is there a call path between these two?",
+      { id: "why", spine: "graph", t: "why", h: "Is there a call path between these two?",
         k: "The question you ask when a result surprises you.",
         M: MechWhyCmd,
         why: html`<p>Breadth-first search over CALLS edges, so the path returned is the shortest one.
@@ -1984,7 +2130,7 @@ const ACTS = [
           candidates and exits with an error rather than picking one.</p>`,
         limit: "It follows CALLS edges only — a dependency through a shared type or an interface is invisible here, even though the blast radius does follow those. And \"no path exists\" is only as true as the graph: with 23% of call sites resolved, absence of a path is weak evidence.",
         refs: ["internal/graph/pathfinder.go:99", "internal/graph/pathfinder.go:33", "internal/cmd/why.go:76"] },
-      { id: "hotspots", t: "hotspots", h: "What is fragile, with no diff at all",
+      { id: "hotspots", spine: "graph", t: "hotspots", h: "What is fragile, with no diff at all",
         k: "A standing view of the codebase rather than a per-change one.",
         M: MechHotspots,
         why: html`<p>Coupling as a static property: inbound callers weighted double, plus outbound
@@ -1992,7 +2138,7 @@ const ACTS = [
           which is the thing you actually care about.</p>`,
         limit: "It ignores confidence completely, counting a guessed edge exactly like a compiler-verified one — which puts a known mis-resolution at the top of the list on this very repository. The command's own help text also describes a formula the code does not implement.",
         refs: ["internal/analyzer/hotspots.go:37", "internal/analyzer/hotspots.go:77", "internal/cmd/hotspots.go:21"] },
-      { id: "visual", t: "report + serve", h: "The same data, for people who want to look at it",
+      { id: "visual", spine: "output", t: "report + serve", h: "The same data, for people who want to look at it",
         k: "One writes a file you can email; the other runs an API a dashboard talks to.",
         M: MechVisualSurfaces,
         why: html`<p>Both read the saved graph and add no analysis of their own. <strong>report</strong>
@@ -2000,7 +2146,7 @@ const ACTS = [
           ${" "}<strong>serve</strong> exposes the engine over HTTP for the Next.js dashboard.</p>`,
         limit: "The server has no authentication at all — loopback binding is the only thing protecting it, and --host removes that. The report embeds the entire graph regardless of what the diff touched, so its size tracks the repository rather than the change.",
         refs: ["internal/output/report.go:29", "internal/server/server.go:65", "internal/cmd/serve.go:40"] },
-      { id: "config", t: "Configuration", h: "What you can change, and what you cannot",
+      { id: "config", spine: "files", t: "Configuration", h: "What you can change, and what you cannot",
         k: "Flags beat the config file, which beats the built-in defaults.",
         M: MechConfig,
         why: html`<p>The config file is found by walking up from the working directory, so a
@@ -2011,10 +2157,10 @@ const ACTS = [
     ]
   },
   {
-    id: "arch", label: "II · Architecture",
+    id: "arch", heroTitle: "Eleven packages, one direction of travel", heroThesis: "Before the mechanisms, the shape. Dependencies point one way, three plain structs cross every boundary, and one interface{} field is what keeps the graph acyclic.", label: "II · Architecture",
     title: "Eleven packages, one direction of travel",
     stages: [
-      { id: "packages", t: "Package map", h: "What the pieces are, and which way they point",
+      { id: "packages", spine: "graph", t: "Package map", h: "What the pieces are, and which way they point",
         k: "Before any single mechanism: the shape of the thing. Five layers, and dependencies that only ever point downward.",
         M: MechPackages,
         why: html`<p>The layering is not decoration — it is enforced by the compiler. Go refuses an
@@ -2025,7 +2171,7 @@ const ACTS = [
           testable — and unsurprisingly they carry the densest test files in the repo.</p>`,
         limit: "internal/cmd imports every other package and holds eleven files of flag wiring, config merging and orchestration. It is the one place the layering buys nothing, and the obvious candidate for splitting if the command set grows further.",
         refs: ["cmd/tracescope/main.go:10", "internal/cmd/root.go:17", "internal/parser/parser.go"] },
-      { id: "seams", t: "The seams", h: "Three structs carry everything across a boundary",
+      { id: "seams", spine: "graph", t: "The seams", h: "Three structs carry everything across a boundary",
         k: "Layers are only as good as what passes between them. Here it is three plain structs and nothing else.",
         M: MechSeams,
         why: html`<p>Each boundary is a <strong>data</strong> contract, not a behavioural one — no
@@ -2036,7 +2182,7 @@ const ACTS = [
           the in-memory model cannot drift apart.</p>`,
         limit: "Because GraphData is also the serialised artifact, every field added for internal convenience lands in the public JSON — ParsedAt is written on every index and read by nothing.",
         refs: ["internal/parser/parser.go FileResult", "internal/graph/types.go:98", "internal/analyzer/blast_radius.go:37"] },
-      { id: "cycle", t: "The cycle", h: "Where the layering had to be bought with a type hole",
+      { id: "cycle", spine: "graph", t: "The cycle", h: "Where the layering had to be bought with a type hole",
         k: "The dependency graph is acyclic. One field is the reason it can be.",
         M: MechCycle,
         why: html`<p>Ownership needs the analyzer's types to do its job, so it imports analyzer. The
@@ -2047,7 +2193,7 @@ const ACTS = [
           knowledge of what that field holds.</p>`,
         limit: "Every consumer of the field repeats the same assertion, and a wrong type fails silently at runtime rather than loudly at build time. Passing plain paths into ownership instead of analyzer structs would have removed the dependency and kept the field typed.",
         refs: ["internal/analyzer/blast_radius.go:48", "internal/ownership/ownership.go:16", "internal/output/github.go:106"] },
-      { id: "sequence", t: "One run, end to end", h: "Every package a single analyze touches",
+      { id: "sequence", spine: "radius", t: "One run, end to end", h: "Every package a single analyze touches",
         k: "The same pipeline the later acts take apart, seen as a call sequence across module boundaries.",
         M: MechSequence,
         why: html`<p>Ten calls, in one direction, with control returning to <strong>internal/cmd</strong>
@@ -2057,7 +2203,7 @@ const ACTS = [
           and analysis deliberately inherits their results rather than repeating them.</p>`,
         limit: "The ordering lives implicitly in one long function, runAnalyze, rather than in a pipeline type. Adding a phase means editing that function and hoping the ordering constraints — ownership after scoring, exit code last — are noticed.",
         refs: ["internal/cmd/analyze.go:48", "internal/analyzer/blast_radius.go:95", "internal/cmd/exit.go:22"] },
-      { id: "decisions", t: "Decisions from bugs", h: "The rules that exist because something broke",
+      { id: "decisions", spine: "score", t: "Decisions from bugs", h: "The rules that exist because something broke",
         k: "The most useful architecture documentation in this repo is its commit history.",
         M: MechDecisions,
         why: html`<p>Each of these started as a defect and ended as an invariant with a comment
@@ -2068,10 +2214,10 @@ const ACTS = [
     ]
   },
   {
-    id: "build", label: "III · Build the graph",
+    id: "build", heroTitle: "First, it has to read your codebase", heroThesis: "Indexing happens once. A directory walk, two parser front ends, a resolution ladder, and a graph stamped with the commit it describes.", label: "III · Build the graph",
     title: "From a directory of files to a graph bound to one commit",
     stages: [
-      { id: "walk", t: "Walk", h: "Find the source, skip the noise",
+      { id: "walk", spine: "files", t: "Walk", h: "Find the source, skip the noise",
         k: "One WalkDir pass decides what the tool will ever be able to see. Everything downstream inherits this filter.",
         M: MechWalk,
         why: html`<p>The walk skips on the way <strong>down</strong>: returning SkipDir on node_modules
@@ -2082,7 +2228,7 @@ const ACTS = [
           forever.</p>`,
         limit: "Files are classified by extension alone. A Go file behind a build tag is still parsed, generated code is indistinguishable from hand-written code, and .min.js is detected by filename rather than content.",
         refs: ["internal/parser/walker.go:46", "walker.go:20 skipDirs", "walker.go:31 allowDotDirs"] },
-      { id: "parse", t: "Parse", h: "Two front ends, one FileResult",
+      { id: "parse", spine: "parse", t: "Parse", h: "Two front ends, one FileResult",
         k: "Go goes through the standard library's own parser and type checker. Everything else goes through tree-sitter.",
         M: MechParse,
         why: html`<p>Both front ends normalise to the same <strong>FileResult</strong>: functions,
@@ -2092,7 +2238,7 @@ const ACTS = [
           error, and the registry keeps those recovered nodes rather than losing the file entirely.</p>`,
         limit: "Files over 10 MB are skipped silently — they are not reported as gaps, they simply are not in the graph. The 30-second tree-sitter timeout has the same property.",
         refs: ["internal/parser/registry.go:35", "internal/parser/golang.go:21", "internal/parser/treesitter.go:12"] },
-      { id: "source", t: "Index source", h: "SCIP if it can, parser if it must",
+      { id: "source", spine: "parse", t: "Index source", h: "SCIP if it can, parser if it must",
         k: "The single most consequential branch in the tool: which backend builds the graph.",
         M: MechScip,
         why: html`<p>An existing <strong>index.scip</strong> at the root wins outright. Otherwise the
@@ -2103,7 +2249,7 @@ const ACTS = [
           the graph without ever saying so.</p>`,
         limit: "Cache freshness is decided by file modification time, not content hash — unlike the parser cache, which uses sha256. Touching a file invalidates a SCIP index that did not actually change.",
         refs: ["internal/cmd/index.go:226", "index.go:238 generateSCIPIndexes", "index.go:477 scipIndexCacheFresh"] },
-      { id: "resolve", t: "Resolve", h: "Turning a name into an edge",
+      { id: "resolve", spine: "graph", t: "Resolve", h: "Turning a name into an edge",
         k: "A call site is a string. Deciding which definition it points at is where a call graph is won or lost.",
         M: MechResolve,
         why: html`<p>The parser backend walks an ordered ladder and stops at the first rung that
@@ -2114,7 +2260,7 @@ const ACTS = [
           ${" "}<code>x</code> is in <code>x.Foo()</code> is a guess, however plausible.</p>`,
         limit: "Only 23% of call sites resolve on this repo. Three thousand unresolved calls means the blast radius is a lower bound — the honest reading of any result is \"at least this much\", never \"exactly this much\".",
         refs: ["internal/graph/builder.go:592", "builder.go:759 bareConfidence", "internal/graph/types.go:26"] },
-      { id: "bounds", t: "Refine bounds", h: "Widening a symbol to its body",
+      { id: "bounds", spine: "graph", t: "Refine bounds", h: "Widening a symbol to its body",
         k: "A fix that only makes sense once you know what the diff mapper does with line numbers.",
         M: MechBounds,
         why: html`<p>scip-go emits definition ranges that cover the <strong>identifier</strong>, not the
@@ -2124,7 +2270,7 @@ const ACTS = [
           usually where the real bugs live.</p>`,
         limit: "The correction is Go-only. TypeScript and Python function bounds still come from whatever their indexer reported, so the same class of silent mis-mapping remains possible there.",
         refs: ["internal/graph/scip.go:257", "internal/analyzer/diff_mapper.go:144"] },
-      { id: "incremental", t: "Incremental", h: "Hash first, parse only what moved",
+      { id: "incremental", spine: "parse", t: "Incremental", h: "Hash first, parse only what moved",
         k: "The second index is fast because most files are provably unchanged.",
         M: MechIncremental,
         why: html`<p>Every file's sha256 is stored with the graph. On a later index the hash is
@@ -2134,7 +2280,7 @@ const ACTS = [
           once cannot leave a half-written cache behind.</p>`,
         limit: "Only parsing is cached — the graph is fully rebuilt every time, because a change in one file can alter which definition a call in an untouched file resolves to. Caching the graph would be incorrect, not merely harder.",
         refs: ["internal/parser/cache.go:19", "internal/cmd/index.go:110", "internal/graph/types.go:80"] },
-      { id: "bind", t: "Bind + save", h: "A graph that knows which commit it describes",
+      { id: "bind", spine: "graph", t: "Bind + save", h: "A graph that knows which commit it describes",
         k: "Line numbers are only meaningful relative to a revision. So the graph records its own.",
         M: MechBind,
         why: html`<p>Commit and origin remote are stamped at save time, and analyze compares the stored
@@ -2147,17 +2293,17 @@ const ACTS = [
     ]
   },
   {
-    id: "pr", label: "IV · Analyse a PR",
+    id: "pr", heroTitle: "Then a diff arrives, and something has to decide", heroThesis: "Hunks become line ranges, ranges become seed functions, callers are walked backwards, and what comes back is ranked and turned into an exit code.", label: "IV · Analyse a PR",
     title: "A diff arrives, and something has to decide what it touches",
     stages: [
-      { id: "diff", t: "Diff", h: "Hunks into line ranges", k: "The input is a unified diff on stdin. Nothing else.",
+      { id: "diff", spine: "diff", t: "Diff", h: "Hunks into line ranges", k: "The input is a unified diff on stdin. Nothing else.",
         M: MechDiff,
         why: html`<p>Each hunk body is walked line by line, tracking a position in the
           ${" "}<strong>new</strong> file. Additions open a range; context lines close it.</p>
           <p>Deletions are the hard case, and the reason this stage has a dedicated scenario.</p>`,
         limit: "Binary files are detected by scanning the extended header for the word \"binary\" — a text file whose diff header happens to contain that word would be skipped.",
         refs: ["internal/diff/parser.go:24", "parser.go:60 extractChangedLinesFromBody"] },
-      { id: "map", t: "Map", h: "Which functions do those lines sit inside?",
+      { id: "map", spine: "diff", t: "Map", h: "Which functions do those lines sit inside?",
         k: "Line ranges meet function bounds. The intersection is the change.",
         M: MechMap,
         why: html`<p>Purely geometric: a function is changed if any changed range overlaps
@@ -2167,7 +2313,7 @@ const ACTS = [
           for determinism.</p>`,
         limit: "Overlap is only as good as the bounds in the graph, which is why the stale-commit warning matters. A graph one commit behind will map a diff onto whatever now occupies those line numbers.",
         refs: ["internal/analyzer/diff_mapper.go:19", "diff_mapper.go:111 matchGraphPath", "diff_mapper.go:130 pathSegmentSuffix"] },
-      { id: "seeds", t: "Seeds", h: "What actually starts the traversal",
+      { id: "seeds", spine: "radius", t: "Seeds", h: "What actually starts the traversal",
         k: "A bug that became a rule: never let a file and its functions both seed.",
         M: MechSeeds,
         why: html`<p>Function-level seeds are preferred. A file node is added only for files where no
@@ -2175,7 +2321,7 @@ const ACTS = [
           resolve.</p>`,
         limit: "If the graph resolved no functions for a changed source file, that file seeds at file level and the traversal is much coarser. The report does not distinguish that case from a genuinely small blast radius.",
         refs: ["internal/analyzer/blast_radius.go:112", "blast_radius.go:134"] },
-      { id: "traverse", t: "Traverse", h: "Reverse BFS, bounded",
+      { id: "traverse", spine: "radius", t: "Traverse", h: "Reverse BFS, bounded",
         k: "Follow callers upward. Stop at depth 5.",
         M: MechTraverse,
         why: html`<p>Edges are followed <strong>backwards</strong>: A calls B, so if B changes, A is
@@ -2186,7 +2332,7 @@ const ACTS = [
           dependencies turned shared types into hubs that flooded the radius.</p>`,
         limit: "Depth 5 is a fixed default with no principle behind it. Everything past hop 5 is invisible, and the report gives no signal that the frontier was cut rather than exhausted.",
         refs: ["internal/graph/query.go:23", "query.go:47 CALLS guard", "query.go:100 depth bound"] },
-      { id: "score", t: "Score", h: "Tiers, then a ranking key",
+      { id: "score", spine: "score", t: "Score", h: "Tiers, then a ranking key",
         k: "Two separate mechanisms that are easy to confuse: the risk tier and the review score.",
         M: MechScore,
         why: html`<p>The tier is a ladder of rules over production caller count, export status and
@@ -2195,7 +2341,7 @@ const ACTS = [
           review priority, and counting raw fan-in would say otherwise.</p>`,
         limit: "The tiers are coarse: everything from 3 production callers to 9 lands on the same MEDIUM base, and ordering within a tier rests entirely on hand-picked constants that were never fitted to data.",
         refs: ["internal/analyzer/risk_scorer.go:40", "risk_scorer.go:69 test rung", "internal/analyzer/blast_radius.go:259"] },
-      { id: "why", t: "Why-path", h: "The chain that justifies the claim",
+      { id: "why", spine: "graph", t: "Why-path", h: "The chain that justifies the claim",
         k: "A ranked list nobody can verify is a list nobody trusts.",
         M: MechWhy,
         why: html`<p>Every affected function ships with the edge chain that reached it, reconstructed
@@ -2205,7 +2351,7 @@ const ACTS = [
           path heuristic, and costs the row 8 points.</p>`,
         limit: "The path is the shortest one, not necessarily the most important one. A function reachable by one obscure route and twenty obvious ones shows only the route BFS happened to find first.",
         refs: ["internal/analyzer/blast_radius.go:207", "internal/graph/query.go:125 mergeConfidence"] },
-      { id: "owners", t: "Owners", h: "Who should look at this",
+      { id: "owners", spine: "output", t: "Owners", h: "Who should look at this",
         k: "The stage most easily skipped, and the first thing a reviewer actually wants.",
         M: MechOwners,
         why: html`<p>Two sources, deliberately independent: CODEOWNERS for policy, git log for reality.
@@ -2213,7 +2359,7 @@ const ACTS = [
           of a blast radius is that the damage is not where you edited.</p>`,
         limit: "git log -1 gives the last person to touch a file, which is not the same as the person who understands it. And it is per-file, so a 900-line file has exactly one \"owner\" no matter how many people work in it.",
         refs: ["internal/ownership/ownership.go:16", "internal/ownership/codeowners.go:79", "internal/ownership/git_log.go:22"] },
-      { id: "surfaces", t: "Surfaces", h: "Four renderings, one result",
+      { id: "surfaces", spine: "output", t: "Surfaces", h: "Four renderings, one result",
         k: "Terminal, JSON, GitHub markdown, standalone HTML.",
         M: MechSurfaces,
         why: html`<p>Each surface is a pure function of the same AnalysisResult. The GitHub comment
@@ -2223,7 +2369,7 @@ const ACTS = [
           never publishes the indexing machine's directory layout.</p>`,
         limit: "The terminal report goes to stderr while JSON goes to stdout, so redirecting output to a file silently produces an empty file for the default format.",
         refs: ["internal/output/github.go:19 repoRelativePath", "github.go:273", "internal/output/terminal.go:26"] },
-      { id: "exit", t: "Exit code", h: "The part CI actually reads",
+      { id: "exit", spine: "exit", t: "Exit code", h: "The part CI actually reads",
         k: "Everything above is advisory until it becomes a number between 0 and 3.",
         M: MechExit,
         why: html`<p>0 clean, 1 HIGH, 2 MEDIUM, 3 the tool itself failed. Keeping 3 distinct is the
@@ -2235,10 +2381,10 @@ const ACTS = [
     ]
   },
   {
-    id: "hood", label: "V · Under the hood",
+    id: "hood", heroTitle: "Whether any of this is actually true", heroThesis: "The four mechanisms the answer rests on — and the evaluation that tries to prove the ranking does not work.", label: "V · Under the hood",
     title: "The mechanisms that decide whether any of this is true",
     stages: [
-      { id: "frontends", t: "Front ends", h: "A type checker, or a syntax tree",
+      { id: "frontends", spine: "parse", t: "Front ends", h: "A type checker, or a syntax tree",
         k: "The difference between knowing what x.Foo() refers to and guessing.",
         M: MechFrontends,
         why: html`<p>Go gets go/types, which resolves method calls against real receiver types.
@@ -2248,7 +2394,7 @@ const ACTS = [
           TypeScript.</p>`,
         limit: "The Go type checker runs per file with its errors discarded, so even the strong path is only partially type-aware. This is the single biggest reason resolution sits at 23%.",
         refs: ["internal/parser/golang.go:129", "golang.go:212 inferGoSelections", "internal/parser/javascript.go:253"] },
-      { id: "symbols", t: "Symbols", h: "What EXACT actually claims",
+      { id: "symbols", spine: "graph", t: "Symbols", h: "What EXACT actually claims",
         k: "The most over-read word in the output.",
         M: MechSymbols,
         why: html`<p>On the parser backend, confidence is a real signal: it records which rung of the
@@ -2256,7 +2402,7 @@ const ACTS = [
           stops carrying information.</p>`,
         limit: "So confidence is not comparable across backends. Two graphs of the same repo can both report \"all exact\" and disagree about which edges exist, and nothing in the output would reveal it.",
         refs: ["internal/graph/scip.go:395", "internal/graph/builder.go:592", "internal/graph/types.go:26"] },
-      { id: "bfs", t: "Traversal", h: "Visit order, dedup, and the bound",
+      { id: "bfs", spine: "radius", t: "Traversal", h: "Visit order, dedup, and the bound",
         k: "Step it manually. The order is the correctness argument.",
         M: MechBFS,
         why: html`<p>A slice with a head index rather than a linked list — the queue is append-only and
@@ -2264,7 +2410,7 @@ const ACTS = [
           the recorded parent chain is the shortest path.</p>`,
         limit: "Because dedup is global, a node reached at depth 2 by a weak path is never revisited by a strong path at depth 3. Confidence therefore depends on which route BFS found first.",
         refs: ["internal/graph/query.go:76", "query.go:104", "query.go:116"] },
-      { id: "formula", t: "The formula", h: "Where every constant came from",
+      { id: "formula", spine: "score", t: "The formula", h: "Where every constant came from",
         k: "Hand-tuned priors, stated as such.",
         M: MechFormula,
         why: html`<p>The design rule is that each piece of evidence enters the score exactly once. The
@@ -2272,7 +2418,7 @@ const ACTS = [
           tier; only orthogonal signals — depth, test-ness, confidence — may adjust further.</p>`,
         limit: "Every number is a guess that has never been fitted. The next stage measures them, and the measurement is not kind.",
         refs: ["internal/analyzer/blast_radius.go:259", "blast_radius.go:246", "internal/analyzer/risk_scorer.go:17"] },
-      { id: "eval", t: "Eval", h: "Replaying history to grade the ranking",
+      { id: "eval", spine: "score", t: "Eval", h: "Replaying history to grade the ranking",
         k: "The subcommand that exists to try to falsify the rest of the tool.",
         M: MechEval,
         why: html`<p>tracescope eval replays the tool across a repository's own history, labels each
@@ -2350,16 +2496,20 @@ function App() {
       <main className="wrap">
         <section className="hero">
           <p className="eyebrow">a Go CLI that answers one question</p>
-          <h1>What does this pull request actually touch?</h1>
+          <${AnimatePresence} mode="wait">
+            <${M} key=${act.id} initial=${{ opacity: 0, y: 10 }} animate=${{ opacity: 1, y: 0 }}
+              exit=${{ opacity: 0, y: -8 }} transition=${T(0.34)}>
+              <h1>${act.heroTitle}</h1>
+            <//>
+          <//>
           <${M} className="trace-rule" initial=${{ scaleX: 0 }} animate=${{ scaleX: 1 }} transition=${T(1.1, 0.15)} />
-          <p className="thesis">
-            TraceScope indexes a repository into a call graph, maps a unified diff onto the functions it
-            changed, walks callers backwards to find everything downstream, ranks what a reviewer should
-            read first, and returns an exit code CI can block on. This page walks the whole tool in the order
-            the code runs it: what you type, how the graph is built, how a pull request is analysed,
-            and the mechanisms that decide whether any of it is true. Every number below was measured
-            in this repository — including the ones that are unflattering.
-          </p>
+          <${AnimatePresence} mode="wait">
+            <${M} key=${act.id + "-t"} initial=${{ opacity: 0 }} animate=${{ opacity: 1 }}
+              exit=${{ opacity: 0 }} transition=${T(0.3)}>
+              <p className="thesis">${act.heroThesis}</p>
+            <//>
+          <//>
+          <${SystemSpine} active=${stage.spine} actId=${act.id} />
           <div className="strip">
             <div><b>${G.nodes}</b><small>graph nodes</small></div>
             <div><b>${G.edges.toLocaleString()}</b><small>edges</small></div>
@@ -2465,7 +2615,7 @@ function App() {
         fell to ${G.calls} and unresolved calls rose to ${G.rUnres.toLocaleString()}: fewer invented
         edges, more admitted gaps.</p>
         <p><b>Every stage states a limitation.</b> That is not modesty. The tool measures Impact, and
-        the evaluation in Act IV shows Impact is a weak standalone predictor of defects — so a
+        the evaluation in Act V shows Impact is a weak standalone predictor of defects — so a
         walkthrough that omitted the weaknesses would be describing a different tool from the one in
         this repository.</p>
       </footer>
