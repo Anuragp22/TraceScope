@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TraceScope — the readout</title>
+<title>TraceScope: how it works</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%235B48D6'/%3E%3Cpath d='M2 11h3l2-6 2 9 2-5h3' fill='none' stroke='white' stroke-width='1.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   :root{
@@ -301,10 +301,10 @@
 
 <div id="boot">
   <h2>Loading the walkthrough…</h2>
-  <p>React, Framer Motion and htm are bundled into <code>vendor/deps.js</code> beside this file — no
-  network needed. If this message is still here after a few seconds, the module did not evaluate.</p>
+  <p>React, Framer Motion and htm are bundled into <code>vendor/deps.js</code> beside this file, so no
+  network is needed. If this message is still here after a few seconds, the module did not evaluate.</p>
   <ul>
-    <li>Serve the folder over HTTP — <code>python -m http.server</code> — module scripts do not run from <code>file://</code>.</li>
+    <li>Serve the folder over HTTP with <code>python -m http.server</code>. Module scripts do not run from <code>file://</code>.</li>
     <li>Check the browser console for the first failing import.</li>
     <li>Confirm <code>vendor/deps.js</code> was copied along with this page.</li>
   </ul>
@@ -448,7 +448,7 @@ const SCENARIOS = {
       { t: "ctx", s: "\treturn filepath.ToSlash(filepath.Clean(path))" }
     ],
     ranges: "915–918", affected: 73, high: 0, med: 5, low: 68, exit: 2,
-    lesson: "Widest radius on the page — 73 functions — and it passes the gate. Breadth and severity are different axes.",
+    lesson: "The widest radius on the page, 73 functions, and it still passes the gate. Breadth and severity are different things.",
     top: [
       { n: "Build", f: "internal/graph/builder.go", l: 34, d: 1, prod: 3, raw: 25, risk: "MEDIUM", rs: 79, conf: "EXACT", why: "direct exported dependency (3 production callers)", path: ["canonicalPath", "Build"] },
       { n: "BuildFromSCIPFiles", f: "internal/graph/scip.go", l: 23, d: 2, prod: 3, raw: 4, risk: "MEDIUM", rs: 73, conf: "EXACT", why: "moderately connected (3 production callers)", path: ["canonicalPath", "loadSourceLines", "BuildFromSCIPFiles"] },
@@ -485,7 +485,7 @@ const SCENARIOS = {
       { t: "ctx", s: "\t\treturn path[2:]" }
     ],
     ranges: "162–165", affected: 14, high: 1, med: 1, low: 12, exit: 1,
-    lesson: "Tightest radius on the page — 14 functions — and the highest single score. Depth 1 to an exported entry point beats breadth every time.",
+    lesson: "The tightest radius on the page, 14 functions, and the highest single score. One hop to a public entry point beats breadth every time.",
     top: [
       { n: "ParseUnifiedDiff", f: "internal/diff/parser.go", l: 24, d: 1, prod: 5, raw: 10, risk: "HIGH", rs: 112, conf: "EXACT", why: "exported function with 5 production callers", path: ["cleanDiffPath", "ParseUnifiedDiff"] },
       { n: "Run", f: "internal/eval/eval.go", l: 86, d: 3, prod: 2, raw: 3, risk: "MEDIUM", rs: 65, conf: "EXACT", why: "exported/public function", path: ["cleanDiffPath", "ParseUnifiedDiff", "replayCommit", "Run"] },
@@ -507,7 +507,7 @@ const GLOSSARY = [
   ["confidence", "EXACT or HEURISTIC, per edge, recording how the edge was resolved. A path takes the weakest link along it."],
   ["why-path", "The chain of edges from the seed to an affected function, rebuilt from the search's parent map. It is the shortest such chain, because breadth-first search finds nodes in depth order."],
   ["SCIP", "Sourcegraph Code Intelligence Protocol. A compiler-grade index: a real toolchain (scip-go, scip-typescript) emits every symbol with a globally unique ID, so a reference points at exactly one definition."],
-  ["tree-sitter", "An incremental parser that produces a syntax tree without a compiler. Fast and language-agnostic, but it sees only syntax — it cannot tell you which Foo a name refers to."],
+  ["tree-sitter", "An incremental parser that produces a syntax tree without a compiler. Fast and works for any language, but it only sees shape, so it cannot tell you which Foo a name refers to."],
   ["go/types", "Go's standard-library type checker. TraceScope runs it to learn the real type of a method receiver, which is what makes Go call edges exact rather than guessed."],
   ["hotspot", "A function ranked by static coupling alone, with no diff involved: inbound×2 + outbound."],
   ["CODEOWNERS", "GitHub's file mapping globs to owners. The last matching rule wins. TraceScope reads it to suggest reviewers."],
@@ -515,7 +515,7 @@ const GLOSSARY = [
   ["exit code", "The number the process returns. 0 clean, 1 HIGH risk, 2 MEDIUM risk, 3 the tool itself failed. This is the whole CI contract."],
   ["AUC", "Probability a random risky commit outranks a random clean one. 0.5 is chance."],
   ["Precision@k", "Of the top k ranked commits, the fraction that actually went wrong."],
-  ["IFA", "Initial False Alarms — the rank of the first genuinely risky commit. Lower is better."],
+  ["IFA", "Initial False Alarms: how far down the list the first genuinely risky change appears. Lower is better."],
   ["churn", "Added plus deleted lines. The baseline the defect-prediction literature keeps warning is hard to beat."]
 ];
 
@@ -571,14 +571,14 @@ function MechRun() {
                 <span className="node">$?</span>
                 <span className="node heur">1</span>
                 <span style=${{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--ink-3)" }}>
-                  HIGH risk found — the CI job fails on this
+                  HIGH risk found, so the CI job fails
                 </span>
               </div>`}
           <//>`}
       <//>
       <${Scale}>
         Real output, trimmed. Indexing this repository cold takes <b>${G.coldIndexSec}s</b> and produces
-        ${" "}<b>${G.nodes} nodes</b>. Analysis then reads that file and finishes in milliseconds — it never
+        ${" "}<b>${G.nodes} nodes</b>. Analysis then reads that file and finishes in milliseconds. It never
         touches your source again.
       <//>
     </div>`;
@@ -586,12 +586,12 @@ function MechRun() {
 
 function MechArtifact() {
   const fields = [
-    { k: "nodes[]", v: G.nodes + " — functions, files, classes", hot: true },
-    { k: "edges[]", v: G.edges.toLocaleString() + " — CALLS, CONTAINS, IMPORTS, EXTENDS, IMPLEMENTS", hot: true },
+    { k: "nodes[]", v: G.nodes + ": functions, files, classes", hot: true },
+    { k: "edges[]", v: G.edges.toLocaleString() + ": CALLS, CONTAINS, IMPORTS, EXTENDS, IMPLEMENTS", hot: true },
     { k: "commit / repo_remote", v: G.commit + " · " + G.remote },
-    { k: "index_source", v: "\"" + G.source + "\" — which backend built this" },
+    { k: "index_source", v: "\"" + G.source + "\": which backend built this" },
     { k: "indexer_statuses[]", v: "why each SCIP indexer ran, was cached, or was skipped" },
-    { k: "file_metadata{}", v: G.metaEntries + " entries — sha256 per file, for incremental re-indexing" },
+    { k: "file_metadata{}", v: G.metaEntries + " entries: sha256 per file, for incremental re-indexing" },
     { k: "resolution_stats", v: "exact / heuristic / ambiguous / unresolved call counts" },
     { k: "resolution_issues[]", v: G.issuesStored + " stored, capped at " + G.issueCap, warn: true }
   ];
@@ -617,113 +617,8 @@ function MechArtifact() {
     </div>`;
 }
 
-function MechReading({ sc }) {
-  const t = sc.top[0];
-  const parts = [
-    { l: "ParseUnifiedDiff", d: "the affected function — not what you edited, what your edit reaches", c: "seed" },
-    { l: t.f + ":" + t.l, d: "where to look. Relative to the repo root", c: "" },
-    { l: "score " + t.rs, d: "ordering only. Never compare it across runs", c: "" },
-    { l: t.risk, d: "the category, from a fixed ladder of rules", c: riskClass(t.risk) === "t-high" ? "heur" : "" },
-    { l: t.prod + " production callers", d: "test callers excluded — this is what the tier is built on", c: "exact" },
-    { l: "depth " + t.d, d: "hops from your change", c: "" },
-    { l: t.conf.toLowerCase(), d: "how the weakest edge on the path was resolved", c: t.conf === "HEURISTIC" ? "heur" : "exact" }
-  ];
-  return html`
-    <div>
-      <${Lbl}>one row, taken apart<//>
-      <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id}>
-        ${parts.map(p => html`
-          <${M} key=${p.l} variants=${itemV} className="row" style=${{ alignItems: "baseline" }}>
-            <span className=${"node " + p.c} style=${{ minWidth: "186px" }}>${p.l}</span>
-            <span style=${{ fontSize: "12px", color: "var(--ink-3)" }}>${p.d}</span>
-          <//>`)}
-      <//>
-      <${Lbl} mt>three separate questions, deliberately not merged<//>
-      <div className="stack">
-        <div className="callout"><b>Tier</b> — how bad is this? A category, from caller count and export status.</div>
-        <div className="callout"><b>Score</b> — what do I read first? An ordering key <em>within</em> a tier.</div>
-        <div className="callout"><b>Confidence</b> — should I believe the connection at all? A property of the edges, not of the code.</div>
-      </div>
-      <div className="callout bad" style=${{ marginTop: "14px" }}>
-        The terminal muddles one of these. It prints <b>"${t.raw} callers"</b> from the raw fan-in —
-        which counts test callers — right next to a reason that says <b>"${t.prod} production
-        callers"</b>. Two different numbers, the same word, on the same line.
-      </div>
-    </div>`;
-}
 
-function MechWhyCmd() {
-  return html`
-    <div>
-      <${Lbl}>tracescope why ${"<"}a> ${"<"}b> — is there a call path, and what is it?<//>
-      <pre className="code">${"$ "}<b>tracescope why ComputeBlastRadius Analyze --reverse</b>${`
 
-  TraceScope — Call Path (1 hop)
-
-  ComputeBlastRadius             internal/graph/query.go:23 [graph]
-    │
-    │ CALLS
-    ▼
-  Analyze                        internal/analyzer/blast_radius.go:95 [analyzer]`}</pre>
-      <${Lbl} mt>resolving the names you typed<//>
-      <div className="stack">
-        <div className="row">
-          ${["exact", "qualified", "prefix", "substring"].map((m, i) => html`
-            <${React.Fragment} key=${m}>
-              ${i > 0 && html`<span style=${{ color: "var(--ink-3)", fontSize: "11px" }}>→</span>`}
-              <span className=${"node" + (i === 0 ? " exact" : "")}>${m}</span>
-            <//>`)}
-        </div>
-        <div className="callout">
-          Ranked by specificity. A bare <b>Build</b> matching several packages is refused, not guessed —
-          the candidates are printed so you can requalify as <b>graph.Build</b>.
-        </div>
-      </div>
-      <div className="callout" style=${{ marginTop: "14px" }}>
-        <b>--reverse</b> walks the edges backwards: not "does A call B" but "does anything lead from B
-        back to A". Same breadth-first search, adjacency built the other way round.
-      </div>
-    </div>`;
-}
-
-function MechHotspots() {
-  return html`
-    <div>
-      <${Lbl}>tracescope hotspots — coupling with no diff involved<//>
-      <div className="scroll-x">
-        <table className="data">
-          <thead><tr><th>function</th><th className="num">in</th><th className="num">out</th>
-            <th className="num">coupling</th><th>file</th></tr></thead>
-          <tbody>
-            ${HOTSPOTS.map(h => html`
-              <tr key=${h.n}>
-                <td style=${{ color: h.suspect ? "var(--heuristic)" : "inherit" }}>${h.n}${h.suspect ? " ⚠" : ""}</td>
-                <td className="num">${h.i}</td>
-                <td className="num">${h.o}</td>
-                <td className="num"><b>${h.c}</b></td>
-                <td style=${{ color: "var(--ink-3)" }}>${h.f}:${h.l}</td>
-              </tr>`)}
-          </tbody>
-        </table>
-      </div>
-      <div className="callout" style=${{ marginTop: "14px" }}>
-        The score is <b>inbound × 2 + outbound</b>, not a product. A product would score a heavily
-        called pure sink — something with zero outbound calls — as <b>zero</b>, burying exactly the
-        functions you most want to see.
-      </div>
-      <div className="callout bad" style=${{ marginTop: "10px" }}>
-        Two problems, both visible above. The CLI help for this command still describes the score as
-        "inbound callers × outbound calls", which is not what the code computes. And the top result is
-        wrong: <b>Error</b> shows 47 inbound callers, but those are the heuristic mis-resolutions of
-        every <b>err.Error()</b> in the repo. <b>ComputeHotspots ignores confidence entirely</b> — it
-        counts every CALLS edge the same, so a known-shaky edge inflates the ranking silently.
-      </div>
-      <${Scale}>
-        ${G.connectedFns} of ${G.fn} functions have any connection at all; the rest are unreferenced or
-        unresolved. Showing 6.
-      <//>
-    </div>`;
-}
 
 function MechVisualSurfaces() {
   const [tab, setTab] = useState("report");
@@ -746,7 +641,7 @@ function MechVisualSurfaces() {
               cannot break out of the page.
             </div>
             <div className="callout bad" style=${{ marginTop: "10px" }}>
-              It embeds the <em>entire</em> graph, so the file grows with the repository — every node
+              It embeds the <em>entire</em> graph, so the file grows with the repository: every node
               and edge, whether or not the diff touched it.
             </div>` : html`
             <pre className="code">${"$ "}<b>tracescope serve</b>${`
@@ -758,7 +653,7 @@ function MechVisualSurfaces() {
             <div className="callout" style=${{ marginTop: "12px" }}>
               Binds to <b>loopback only</b> by default. It has no authentication and shells out to git
               against the working tree, so exposing it is opt-in via --host. The only git command it
-              runs is <b>diff HEAD</b> — there is no user-controlled revision, so no query value ever
+              runs is <b>diff HEAD</b>. Nothing in the request picks the revision, so no query value ever
               reaches git's argument parser.
             </div>
             <div className="callout warn" style=${{ marginTop: "10px" }}>
@@ -777,14 +672,14 @@ function MechConfig() {
     { k: "format", d: "terminal", f: "--format" },
     { k: "top", d: "0 (all)", f: "--top" },
     { k: "ignore", d: "none", f: "--ignore", note: "union, not override" },
-    { k: "graph_path", d: ".tracescope/graph.json", f: "—" },
-    { k: "risk.high_callers", d: "10", f: "—" },
-    { k: "risk.high_exported_callers", d: "5", f: "—" },
-    { k: "risk.medium_callers", d: "3", f: "—" }
+    { k: "graph_path", d: ".tracescope/graph.json", f: "none" },
+    { k: "risk.high_callers", d: "10", f: "none" },
+    { k: "risk.high_exported_callers", d: "5", f: "none" },
+    { k: "risk.medium_callers", d: "3", f: "none" }
   ];
   return html`
     <div>
-      <${Lbl}>.tracescope.yaml — found by walking up from the working directory<//>
+      <${Lbl}>.tracescope.yaml: found by walking up from the working directory<//>
       <div className="row" style=${{ marginBottom: "14px" }}>
         ${["CLI flag", "config file", "built-in default"].map((s, i) => html`
           <${React.Fragment} key=${s}>
@@ -800,20 +695,20 @@ function MechConfig() {
               <tr key=${r.k}>
                 <td>${r.k}</td>
                 <td style=${{ color: "var(--ink-3)" }}>${r.d}</td>
-                <td style=${{ color: r.f === "—" ? "var(--ink-3)" : "var(--exact)" }}>${r.f}${r.note ? "  (" + r.note + ")" : ""}</td>
+                <td style=${{ color: r.f === "none" ? "var(--ink-3)" : "var(--exact)" }}>${r.f}${r.note ? "  (" + r.note + ")" : ""}</td>
               </tr>`)}
           </tbody>
         </table>
       </div>
       <div className="callout" style=${{ marginTop: "14px" }}>
-        A malformed config degrades to the defaults and logs a warning, rather than failing the run or
-        — worse — silently leaving every setting at its zero value.
+        A broken config falls back to the defaults and says so, rather than failing the run or
+        or worse, silently leaving every setting at zero.
       </div>
       <div className="callout bad" style=${{ marginTop: "10px" }}>
         Config values only override when non-zero, which means <b>you cannot configure a zero</b>.
         Setting a risk threshold to 0 is indistinguishable from not setting it, so "treat every
         function as highly connected" is unreachable. The four risk thresholds also have no CLI flags
-        at all — they are config-only.
+        at all, so they can only be set in the file.
       </div>
     </div>`;
 }
@@ -834,7 +729,7 @@ function MechWalk() {
   const shown = swept ? entries.filter(e => e.keep) : entries;
   return html`
     <div>
-      <${Lbl}>filepath.WalkDir — one pass, skip on the way down<//>
+      <${Lbl}>filepath.WalkDir: one pass, skip on the way down<//>
       <${M} layout className="stack">
         <${AnimatePresence} mode="popLayout">
           ${shown.map(e => html`
@@ -863,46 +758,6 @@ function MechWalk() {
     </div>`;
 }
 
-function MechParse() {
-  const [split, setSplit] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setSplit(true), 700); return () => clearTimeout(t); }, []);
-  const symbols = [
-    { s: "FunctionDef Score", k: "exact" }, { s: "FunctionDef highCallers", k: "exact" },
-    { s: "ClassDef RiskScorer", k: "exact" }, { s: "Import fmt", k: "" },
-    { s: "Call fmt.Sprintf", k: "" }, { s: "Call s.mediumCallers", k: "" }
-  ];
-  return html`
-    <div>
-      <${Lbl}>two front ends, chosen by extension<//>
-      <div className="row" style=${{ marginBottom: "16px" }}>
-        <span className="node exact">.go → go/parser + go/ast + go/types</span>
-        <span className="node heur">.ts .js .py → tree-sitter</span>
-      </div>
-      <${M} layout transition=${T(0.5)}>
-        ${!split ? html`
-          <${M} layout layoutId="src-card" className="node" style=${{ padding: "14px 16px" }}>
-            risk_scorer.go <span style=${{ color: "var(--ink-3)" }}>— 69 lines</span>
-          <//>` : html`
-          <${M} layout layoutId="src-card">
-            <${M} className="stack" variants=${listV} initial="hidden" animate="show">
-              ${symbols.map(sy => html`
-                <${M} key=${sy.s} variants=${itemV}>
-                  <span className=${"node " + sy.k}>${sy.s}</span>
-                <//>`)}
-            <//>
-          <//>`}
-      <//>
-      <${Lbl} mt>worker pool<//>
-      <div className="callout">
-        min(runtime.NumCPU(), 8) workers · files over 10 MB skipped ·
-        sha256 of the source becomes ContentHash, which is what makes the next index incremental
-      </div>
-      <${Scale}>
-        Six symbol chips stand in for one file. Across the repo the parse produced
-        ${" "}<b>${G.fn} function</b>, <b>${G.cls} class</b> and <b>${G.files} file</b> nodes.
-      <//>
-    </div>`;
-}
 
 function MechScip({ source }) {
   const scip = source === "scip";
@@ -913,7 +768,7 @@ function MechScip({ source }) {
   ];
   return html`
     <div>
-      <${Lbl}>collectSCIPIndexes — the branch, in order<//>
+      <${Lbl}>collectSCIPIndexes: the branch, in order<//>
       <div className="stack" style=${{ marginBottom: "16px" }}>
         <div className="callout">1 · does index.scip already sit at the repo root? → use it, state <b>used_existing</b>, stop</div>
         <div className="callout">2 · otherwise build a candidate per language and run each one</div>
@@ -952,8 +807,8 @@ function MechResolve({ source }) {
     { r: "receiver resolved through the file's import map", c: "EXACT" },
     { r: "bare name, same file", c: "EXACT" },
     { r: "bare name, same package (Go)", c: "EXACT" },
-    { r: "receiver.name, no static type — a guess", c: "HEURISTIC" },
-    { r: "bare name, but the call had a receiver — matched without knowing what it is", c: "HEURISTIC" },
+    { r: "receiver.name, no static type, a guess", c: "HEURISTIC" },
+    { r: "bare name, but the call had a receiver, matched without knowing what it is", c: "HEURISTIC" },
     { r: "more than one candidate → ambiguous, edge dropped", c: "AMBIGUOUS" },
     { r: "nothing matched → unresolved, edge dropped", c: "UNRESOLVED" }
   ];
@@ -961,19 +816,19 @@ function MechResolve({ source }) {
     <div>
       ${scip ? html`
         <div>
-          <${Lbl}>SCIP path — no ladder at all<//>
+          <${Lbl}>SCIP path: no ladder at all<//>
           <div className="callout good" style=${{ marginBottom: "14px" }}>
             A SCIP occurrence already carries a globally unique symbol string. The builder looks it up
             and emits the edge. Every call to addEdge in scip.go passes EdgeConfidenceExact.
           </div>
           <div className="callout bad">
             Which means: in SCIP mode the tool has <b>no way to express doubt</b>. The HEURISTIC label
-            — its only honesty mechanism about edges — is unreachable. Absence of a heuristic tag is
+            which is its only way to record a doubt about an edge. Absence of a heuristic tag is
             not evidence of a correct graph.
           </div>
         </div>` : html`
         <div>
-          <${Lbl}>resolveCall — first rung that matches wins<//>
+          <${Lbl}>resolveCall: first rung that matches wins<//>
           <${MOL} className="stack" variants=${listV} initial="hidden" animate="show"
             style=${{ listStyle: "none", margin: 0, padding: 0 }}>
             ${rungs.map((x, i) => html`
@@ -992,7 +847,7 @@ function MechResolve({ source }) {
           <thead><tr><th>outcome</th><th className="num">call sites</th><th>share</th></tr></thead>
           <tbody>
             ${[["exact", G.rExact, "var(--exact)"], ["heuristic", G.rHeur, "var(--heuristic)"],
-               ["ambiguous — dropped", G.rAmb, "var(--ink-3)"], ["unresolved — dropped", G.rUnres, "var(--alarm)"]]
+               ["ambiguous, dropped", G.rAmb, "var(--ink-3)"], ["unresolved, dropped", G.rUnres, "var(--alarm)"]]
               .map(([n, v, c]) => html`
                 <tr key=${n}>
                   <td style=${{ color: c }}>${n}</td>
@@ -1002,6 +857,26 @@ function MechResolve({ source }) {
           </tbody>
         </table>
       </div>
+
+      <${Lbl} mt>what the label actually claims<//>
+      <div className="scroll-x">
+        <table className="data">
+          <thead><tr><th>backend</th><th>exact means</th><th>heuristic means</th></tr></thead>
+          <tbody>
+            <tr><td>parser</td>
+              <td style=${{ color: "var(--exact)" }}>matched by type, by import, or by being the only candidate in the file or package</td>
+              <td style=${{ color: "var(--heuristic)" }}>matched on the name alone, with no idea what the receiver was</td></tr>
+            <tr><td>SCIP</td>
+              <td style=${{ color: "var(--exact)" }}>a compiler symbol matched</td>
+              <td style=${{ color: "var(--ink-3)" }}>never used: every edge is marked exact</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="callout bad" style=${{ marginTop: "12px" }}>
+        So the two backends do not mean the same thing by the word. On the SCIP path there is no way
+        for the tool to record a doubt, and two graphs of the same repository can both say all exact
+        while disagreeing about which edges exist.
+      </div>
       <${Scale}>
         ${G.callSites.toLocaleString()} call sites seen · ${G.calls.toLocaleString()} CALLS edges emitted ·
         ${" "}<b>${G.resolvedPct}% resolved</b>. The graph you analyse is roughly a quarter of the call sites
@@ -1010,45 +885,15 @@ function MechResolve({ source }) {
     </div>`;
 }
 
-function MechBounds() {
-  const [wide, setWide] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setWide(true), 800); return () => clearTimeout(t); }, []);
-  return html`
-    <div>
-      <${Lbl}>refineGoFunctionBounds — scip-go gives you the name, not the body<//>
-      <pre className="code">${`  40  `}<b>func (s *RiskScorer) Score(</b>${`node *graph.Node, ...) {
-  41      effectiveCallers := prodCallerCount
-  42
-  43      if effectiveCallers >= s.highCallers() {
-  ...
-  69  }`}</pre>
-      <div style=${{ position: "relative", marginTop: "12px", height: "76px" }}>
-        <${M}
-          initial=${{ height: 12 }} animate=${{ height: wide ? 62 : 12 }} transition=${T(0.6)}
-          style=${{ border: "1px solid var(--seed)", background: "var(--seed-bg)", borderRadius: "3px",
-                    width: "100%", position: "absolute", top: 0 }} />
-        <${MS} animate=${{ opacity: 1 }}
-          style=${{ position: "absolute", top: wide ? "66px" : "16px", fontFamily: "var(--mono)",
-                    fontSize: "10.5px", color: "var(--seed)", transition: "top .5s" }}>
-          ${wide ? "StartLine 40 → EndLine 69, from go/ast" : "StartLine 40 → EndLine 40, from scip-go"}
-        <//>
-      </div>
-      <div className="callout" style=${{ marginTop: "18px" }}>
-        Why it matters: the diff mapper tests <b>line-range overlap</b>. With an identifier-only range,
-        a change on line 55 overlaps nothing — the function is silently not a seed, and its whole
-        blast radius disappears from the report.
-      </div>
-    </div>`;
-}
 
 function MechBind() {
   return html`
     <div>
-      <${Lbl}>storeGraph — stamp the revision, then rename into place<//>
+      <${Lbl}>storeGraph: stamp the revision, then rename into place<//>
       <pre className="code">${`graphData.Commit     = gitHead(rootPath)
 graphData.RepoRemote = gitOriginRemote(rootPath)
 
-`}<i>// Store.Save writes .graph-*.tmp then os.Rename —</i>${`
+`}<i>// Store.Save writes .graph-*.tmp then os.Rename,</i>${`
 `}<i>// a killed index leaves the old graph intact, never a half-written one</i></pre>
       <${Lbl} mt>right now, in this repository<//>
       <${M} className="stack" variants=${listV} initial="hidden" animate="show">
@@ -1060,14 +905,14 @@ graphData.RepoRemote = gitOriginRemote(rootPath)
         <//>
         <${M} variants=${itemV}>
           <div className="callout good">
-            in sync — analysis proceeds without a warning
+            in sync, so analysis runs
           </div>
         <//>
       <//>
       <${Scale}>
         These match because the graph was rebuilt at HEAD. When this page was first written they did
         not: the artifact was bound to <b>2c2d5e0</b> while HEAD was <b>4dc8ac0</b>, and every line
-        number quoted from it had drifted. That is exactly the failure the stamp exists to catch —
+        number quoted from it had drifted. That is the failure the stamp exists to catch, and
         and the reason every figure on this page was re-measured after the graph moved.
       <//>
     </div>`;
@@ -1109,7 +954,7 @@ function MechDiff({ sc }) {
 function MechMap({ sc }) {
   return html`
     <div>
-      <${Lbl}>MapDiffToFunctions — overlap, not name matching<//>
+      <${Lbl}>MapDiffToFunctions: overlap, not name matching<//>
       <pre className="code">${`func linesOverlap(aStart, aEnd, bStart, bEnd int) bool {
     return aStart `}<b>${LT}</b>${`= bEnd && bStart `}<b>${LT}</b>${`= aEnd
 }`}</pre>
@@ -1119,7 +964,7 @@ function MechMap({ sc }) {
         <div className="callout">matchGraphPath: exact hit, else longest <b>path-segment</b> suffix,
           ties broken alphabetically so the answer never depends on map iteration order</div>
         <div className="callout good">src/utils/helper.go ⊃ utils/helper.go ✓${"  "}·${"  "}
-          src/myutils/helper.go ⊅ utils/helper.go ✗ — segments, not string suffix</div>
+          src/myutils/helper.go ⊅ utils/helper.go ✗ (segments, not text)</div>
       </div>
       <${Lbl} mt>result<//>
       <div className="row">
@@ -1139,7 +984,7 @@ function MechMap({ sc }) {
 function MechSeeds({ sc }) {
   return html`
     <div>
-      <${Lbl}>seed selection — function nodes win<//>
+      <${Lbl}>seed selection: function nodes win<//>
       <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id}>
         <${M} variants=${itemV} className="row">
           <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "16px" }}>01</span>
@@ -1155,7 +1000,7 @@ function MechSeeds({ sc }) {
       <div className="callout" style=${{ marginTop: "16px" }}>
         A file node is added <b>only</b> when no function in that file matched. Otherwise the file node
         and its functions would both seed the BFS, and everything reachable from either would be counted
-        twice — inflating the affected set and the caller counts that feed the score.
+        twice, inflating both the affected set and the caller counts the score is built on.
       </div>
       <div className="callout" style=${{ marginTop: "10px" }}>
         Seeds are then excluded from their own results: the report answers
@@ -1180,7 +1025,7 @@ function MechTraverse({ sc }) {
   ].filter(l => l.items.length);
   return html`
     <div>
-      <${Lbl}>reverse BFS — who calls this?<//>
+      <${Lbl}>reverse BFS: who calls this?<//>
       <div className="stack" style=${{ gap: "14px" }}>
         ${levels.map((lv, li) => html`
           <${M} key=${sc.id + "-" + lv.d}
@@ -1214,13 +1059,13 @@ function MechTraverse({ sc }) {
         Two details that are easy to animate backwards: the depth bound is checked
         ${" "}<b>before</b> a node expands, so an over-deep frontier is never built and then trimmed;
         and <b>visited</b> is set when a node is enqueued, so a node reached twice keeps its
-        first — therefore shortest — path.
+        first path found, which is the shortest one.
       </div>
       <${Scale}>
         Showing the top-scoring nodes per level. The full traversal for this change reached
         ${" "}<b>${sc.affected} functions</b> across the ${G.nodes}-node graph. IMPORTS edges are
         excluded from the reverse adjacency, and CALLS edges are followed only into function
-        nodes — otherwise a shared type becomes a hub that floods the radius.
+        nodes. Otherwise a shared type becomes a hub and the radius floods.
       <//>
     </div>`;
 }
@@ -1228,7 +1073,7 @@ function MechTraverse({ sc }) {
 function MechScore({ sc }) {
   return html`
     <div>
-      <${Lbl}>the ladder — first rule that fires wins<//>
+      <${Lbl}>the ladder: first rule that fires wins<//>
       <div className="stack" style=${{ marginBottom: "16px" }}>
         ${[["prod ≥ 10", "HIGH", "t-high"], ["exported && prod ≥ 5", "HIGH", "t-high"],
            ["depth ≤ 1 && exported && prod ≥ 1", "MEDIUM", "t-med"], ["prod ≥ 3", "MEDIUM", "t-med"],
@@ -1277,7 +1122,7 @@ function MechScore({ sc }) {
 function MechWhy({ sc }) {
   return html`
     <div>
-      <${Lbl}>buildImpactPath — walk the BFS parent map back to the seed<//>
+      <${Lbl}>buildImpactPath: walk the BFS parent map back to the seed<//>
       <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id} style=${{ gap: "13px" }}>
         ${sc.top.map(t => html`
           <${M} key=${t.n} variants=${itemV}>
@@ -1289,12 +1134,12 @@ function MechWhy({ sc }) {
       <//>
       <div className="callout" style=${{ marginTop: "16px" }}>
         The path is reconstructed, not searched for. BFS already recorded a parent per node, so the chain
-        is free — and because BFS visits in depth order, it is the shortest chain, not merely a chain.
+        is free. And because the search works outward in order, it is the shortest chain rather than just a chain.
       </div>
       ${sc.top.some(t => t.conf === "HEURISTIC") && html`
         <div className="callout warn" style=${{ marginTop: "10px" }}>
           One path here is heuristic. Some hop along it was resolved without knowing the receiver's
-          type — a name match the tool could not confirm — and a path takes the <b>weakest</b>
+          type, so it is a name match the tool could not confirm. A path takes the <b>weakest</b>
           confidence along it, so the whole chain is marked heuristic and the row loses 8 points.
           Note it is four hops deep: the further a claim travels, the more chances it has to pass
           through a link like that.
@@ -1307,7 +1152,7 @@ function MechOwners({ sc }) {
     <div>
       <${Lbl}>two independent lookups, both best-effort<//>
       <div className="stack">
-        <div className="callout"><b>CODEOWNERS</b> — searched at ./CODEOWNERS, .github/CODEOWNERS, docs/CODEOWNERS.
+        <div className="callout"><b>CODEOWNERS</b>, searched at ./CODEOWNERS, .github/CODEOWNERS and docs/CODEOWNERS.
           Globs matched with doublestar; <b>last matching rule wins</b>, which is GitHub's semantics,
           not first-match.</div>
         <div className="callout"><b>git log -1</b> per file for the last author, email and date.</div>
@@ -1319,7 +1164,7 @@ function MechOwners({ sc }) {
       </div>
       <div className="callout bad" style=${{ marginTop: "16px" }}>
         This repository has <b>no CODEOWNERS file</b>, so on this project the reviewer suggestion is
-        empty and only the git-log author survives. A missing CODEOWNERS is not an error — it returns
+        empty and only the git-log author survives. A missing CODEOWNERS is not an error. It returns
         nil, and CodeownersFound stays false.
       </div>
       <div className="callout" style=${{ marginTop: "10px" }}>
@@ -1378,7 +1223,7 @@ function MechSurfaces({ sc }) {
               ${" "}<b>edits it in place</b> instead of appending a new one on every push.
             </div>`}
           ${tab === "report" && html`
-            <div className="callout">A standalone HTML file via <b>tracescope report</b> — the same
+            <div className="callout">A standalone HTML file from <b>tracescope report</b>, holding the same
             AnalysisResult rendered for someone who was not at the terminal.</div>`}
         <//>
       <//>
@@ -1398,7 +1243,7 @@ function MechExit({ sc }) {
   ];
   return html`
     <div>
-      <${Lbl}>ResolveExit — the CI contract<//>
+      <${Lbl}>ResolveExit: the CI contract<//>
       <div className="stack">
         ${codes.map(x => html`
           <${M} key=${x.c} animate=${{ opacity: x.on ? 1 : 0.4 }} transition=${T(0.3)} className="row">
@@ -1411,26 +1256,26 @@ function MechExit({ sc }) {
       </div>
       <${Lbl} mt>what the workflow does with it<//>
       <pre className="code">${`if [ "$code" = "1" ] || [ "$code" = "3" ]; then exit "$code"; fi
-exit 0                       `}<i>// MEDIUM is advisory — the comment still posts</i></pre>
+exit 0                       `}<i>// MEDIUM is advisory; the comment still posts</i></pre>
       <div className="callout" style=${{ marginTop: "14px" }}>
         Code 3 exists so a broken invocation cannot be mistaken for a high-risk PR. Without it, a
         missing graph and a dangerous change would both be "non-zero", and the gate would block for
         the wrong reason.
       </div>
       <div className="callout" style=${{ marginTop: "10px" }}>
-        Posting the PR comment is deliberately <b>non-fatal</b>. The exit code is the contract; the
+        Posting the PR comment is <b>allowed to fail</b>. The exit code is the contract; the
         comment is a side effect. A transient gh or API hiccup logs a warning and the risk signal
         still stands.
       </div>
       ${sc.exit === 2 && html`
         <div className="callout bad" style=${{ marginTop: "14px" }}>
-          This change exits <b>2</b>, which the workflow lets through — 73 affected functions and
+          This change exits <b>2</b>, which the workflow lets through. Seventy-three affected functions and
           none of them HIGH. Breadth and severity are separate axes, and only severity is wired to
           the gate.
         </div>`}
       ${sc.exit === 1 && html`
         <div className="callout bad" style=${{ marginTop: "14px" }}>
-          The gate is coarse in the other direction too. Just <b>${G.ratedHigh} of ${G.fn}</b>
+          The gate is blunt in the other direction too. Just <b>${G.ratedHigh} of ${G.fn}</b>
           functions in this repo are rated HIGH, but they sit close to the middle of the call graph,
           so a great many small changes reach one and fail the build. A single HIGH anywhere in the
           radius fails it, however weak the path.
@@ -1465,7 +1310,7 @@ function MechFrontends() {
 })`}</pre>
             <div className="callout good" style=${{ marginTop: "12px" }}>
               Go gets a type checker. <b>types.Config.Check</b> fills a Selections map, so
-              ${" "}<b>x.Foo()</b> resolves to the method on x's actual type — a call edge with EXACT
+              ${" "}<b>x.Foo()</b> resolves to the method on x's real type, giving a call edge with EXACT
               confidence rather than a name guess.
             </div>
             <div className="callout warn" style=${{ marginTop: "10px" }}>
@@ -1482,7 +1327,7 @@ tree, err := parser.ParseCtx(ctx, nil, source)
 `}<i>// plus inferTSVariableType / findTSConstructorType to guess a type</i></pre>
             <div className="callout warn" style=${{ marginTop: "12px" }}>
               Tree-sitter returns syntax, not meaning. There is no type checker, so TypeScript receiver
-              types are <b>inferred from local declarations and constructor calls</b> — good enough to
+              types are <b>inferred from local declarations and constructor calls</b>, which is good enough to
               be useful, weak enough that its edges are the ones tagged HEURISTIC.
             </div>
             <div className="callout bad" style=${{ marginTop: "10px" }}>
@@ -1498,132 +1343,8 @@ tree, err := parser.ParseCtx(ctx, nil, source)
     </div>`;
 }
 
-function MechSymbols({ source }) {
-  return html`
-    <div>
-      <${Lbl}>what a SCIP symbol looks like<//>
-      <pre className="code">${`scip-go gomod github.com/anurag/tracescope v0.0.0 \`internal/analyzer\`/RiskScorer#Score().`}</pre>
-      <div className="callout" style=${{ marginTop: "12px" }}>
-        Globally unique, emitted by the compiler's own view of the program. A reference occurrence
-        carrying that string needs no guessing — the definition is looked up directly.
-      </div>
-      <${Lbl} mt>so what does "confidence" actually mean?<//>
-      <div className="scroll-x">
-        <table className="data">
-          <thead><tr><th>backend</th><th>EXACT means</th><th>HEURISTIC means</th></tr></thead>
-          <tbody>
-            <tr><td>parser</td><td style=${{ color: "var(--exact)" }}>resolved by static type, import binding, or same-file/same-package uniqueness</td>
-              <td style=${{ color: "var(--heuristic)" }}>matched on receiver.name with no static type — a guess the tool admits to</td></tr>
-            <tr><td>SCIP</td><td style=${{ color: "var(--exact)" }}>a compiler symbol matched</td>
-              <td style=${{ color: "var(--ink-3)" }}>never emitted — every addEdge call passes EdgeConfidenceExact</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div className=${"callout " + (source === "scip" ? "bad" : "warn")} style=${{ marginTop: "14px" }}>
-        ${source === "scip"
-          ? html`You are currently viewing the SCIP path, where <b>every edge reads EXACT</b>. That is
-                 not a claim of correctness — it is the absence of a doubt channel. Missing edges stay
-                 missing and nothing is flagged.`
-          : html`On the parser path, <b>${G.heuristic} of ${G.edges.toLocaleString()} edges</b> carry
-                 HEURISTIC. Those are the ones the tool is telling you to check by hand.`}
-      </div>
-      <div className="callout" style=${{ marginTop: "10px" }}>
-        Ambiguous references are <b>dropped, not guessed</b>. ${G.rAmb} of them here. A missing edge is a
-        false negative you can measure; a wrong edge is a false positive you cannot see.
-      </div>
-    </div>`;
-}
 
-function MechBFS() {
-  const [step, setStep] = useState(0);
-  const frames = [
-    { q: ["seed"], v: ["seed"], note: "seeds enqueued at depth 0, marked visited" },
-    { q: ["A", "B"], v: ["seed", "A", "B"], note: "seed dequeued, its callers enqueued and marked" },
-    { q: ["B", "C"], v: ["seed", "A", "B", "C"], note: "A expands; C is new" },
-    { q: ["C"], v: ["seed", "A", "B", "C"], note: "B expands; its caller C is already visited — skipped, so C keeps its shorter path" },
-    { q: [], v: ["seed", "A", "B", "C"], note: "C is at maxDepth: dequeued, not expanded" }
-  ];
-  const f = frames[step];
-  return html`
-    <div>
-      <${Lbl}>slice-backed queue, head index instead of shifting<//>
-      <div className="stack" style=${{ marginBottom: "16px" }}>
-        <div className="row">
-          <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "62px" }}>queue</span>
-          <${AnimatePresence} mode="popLayout">
-            ${f.q.length ? f.q.map(x => html`
-              <${MS} key=${"q" + x} layout initial=${{ opacity: 0, scale: 0.9 }}
-                animate=${{ opacity: 1, scale: 1 }} exit=${{ opacity: 0, scale: 0.9 }} transition=${T(0.25)}
-                className=${"node" + (x === "seed" ? " seed" : "")}>${x}<//>`)
-              : html`<span key="empty" className="node dead">empty</span>`}
-          <//>
-        </div>
-        <div className="row">
-          <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "62px" }}>visited</span>
-          ${f.v.map(x => html`<span key=${"v" + x} className="node exact">${x}</span>`)}
-        </div>
-      </div>
-      <div className="callout" style=${{ minHeight: "44px" }}>${f.note}</div>
-      <div className="seg" style=${{ marginTop: "14px" }}>
-        <button type="button" onClick=${() => setStep(Math.max(0, step - 1))}>← back</button>
-        <button type="button" onClick=${() => setStep(Math.min(frames.length - 1, step + 1))}>step →</button>
-        <button type="button" onClick=${() => setStep(0)}>reset</button>
-      </div>
-      <${Scale}>
-        Four letters standing in for a real traversal over ${G.nodes} nodes and
-        ${G.edges.toLocaleString()} edges. Frame 4 is the point: dedup happens on
-        ${" "}<b>enqueue</b>, so the first path found — the shortest — is the one reported as the why-path.
-      <//>
-    </div>`;
-}
 
-function MechFormula({ sc }) {
-  const t = sc.top[0];
-  const base = t.risk === "HIGH" ? 80 : t.risk === "MEDIUM" ? 50 : 20;
-  const callerTerm = Math.round(8 * Math.log1p(t.prod));
-  const testTerm = t.test ? 0 : 6;
-  const depthTerm = t.d <= 1 ? 12 : t.d === 2 ? 6 : t.d >= 4 ? -4 : 0;
-  const confTerm = t.conf === "HEURISTIC" ? -8 : 0;
-  const terms = [
-    { l: "tier base (" + t.risk + ")", v: base, why: "the coarse category, already derived from prod callers + export" },
-    { l: "8 × log1p(" + t.prod + " prod callers)", v: callerTerm, why: "within-tier granularity — uncapped but sublinear" },
-    { l: t.test ? "is a test function" : "not a test function", v: testTerm, why: "a test in the blast radius is a lower review priority" },
-    { l: "depth " + t.d, v: depthTerm, why: "proximity to the change" },
-    { l: t.conf === "HEURISTIC" ? "heuristic path" : "exact path", v: confTerm, why: "a guessed edge is weaker evidence" }
-  ];
-  return html`
-    <div>
-      <${Lbl}>computeReviewScore, term by term — ${t.n}<//>
-      <${M} className="stack" variants=${listV} initial="hidden" animate="show" key=${sc.id}>
-        ${terms.map(x => html`
-          <${M} key=${x.l} variants=${itemV} className="row" style=${{ alignItems: "baseline" }}>
-            <span style=${{ fontFamily: "var(--mono)", fontSize: "12px", minWidth: "46px", textAlign: "right",
-                            color: x.v > 0 ? "var(--exact)" : x.v < 0 ? "var(--alarm)" : "var(--ink-3)" }}>
-              ${x.v > 0 ? "+" : ""}${x.v}
-            </span>
-            <span className="node" style=${{ minWidth: "204px", whiteSpace: "normal" }}>${x.l}</span>
-            <span style=${{ fontSize: "11.5px", color: "var(--ink-3)" }}>${x.why}</span>
-          <//>`)}
-        <${M} variants=${itemV} className="row"
-          style=${{ borderTop: "1px solid var(--line)", paddingTop: "10px", marginTop: "4px", alignItems: "baseline" }}>
-          <span style=${{ fontFamily: "var(--mono)", fontSize: "15px", fontWeight: 700, minWidth: "46px", textAlign: "right" }}>
-            ${t.rs}
-          </span>
-          <span style=${{ fontFamily: "var(--mono)", fontSize: "11.5px", color: "var(--ink-3)" }}>review_score</span>
-        <//>
-      <//>
-      <div className="callout" style=${{ marginTop: "16px" }}>
-        The rule the comment in the source states outright: <b>the tier base already encodes caller
-        count and export status</b>, so nothing else may re-add them. An earlier version did — a linear
-        caller bonus plus a separate +10 for exported — which double-counted the same evidence, and the
-        linear term saturated so a 6-caller and a 600-caller function tied.
-      </div>
-      <div className="callout bad" style=${{ marginTop: "10px" }}>
-        Every constant here — 80/50/20, the weight 8, +12/+6/−4, −8 — is hand-picked. None of it is
-        fitted to data. The next stage is what happens when you go and measure it.
-      </div>
-    </div>`;
-}
 
 function MechEval() {
   const [view, setView] = useState("full");
@@ -1631,7 +1352,7 @@ function MechEval() {
     <div>
       <${Lbl}>replay: index each commit's tree in a throwaway worktree, analyse its own diff<//>
       <pre className="code">${`git worktree add --detach --force $tmp $sha
-WalkDirectory → ParseFiles → Build          `}<i>// parser backend, no SCIP — replay speed</i>${`
+WalkDirectory → ParseFiles → Build          `}<i>// parser backend, no SCIP, for replay speed</i>${`
 diff C^1 C → MapDiffToFunctions → blast radius
 record: max review score, churn, affected count, max fan-in
 
@@ -1673,10 +1394,10 @@ label: reverted   ("This reverts commit ...")
       <//>
       <div className="callout bad" style=${{ marginTop: "16px" }}>
         <b>The honest reading.</b> On the full corpus the ladder (0.613) beats churn (0.595) and random
-        (0.494). But <b>${EVAL.zero} of ${EVAL.n} commits score zero</b> — including
+        (0.494). But <b>${EVAL.zero} of ${EVAL.n} commits score zero</b>, including
         ${" "}<b>${EVAL.zeroRisky} of the ${EVAL.positives} risky ones</b>. Restrict to the ${EVAL.subset.n}
         commits it actually scored and AUC collapses to <b>0.516</b>, behind raw fan-in at 0.541.
-        Nearly all the signal is the coarse bit "does this change touch resolved functions at all" —
+        Nearly all the signal is the rough test "does this change touch resolved functions at all",
         not the weighting.
       </div>
       <div className="callout" style=${{ marginTop: "10px" }}>
@@ -1728,8 +1449,8 @@ function MechIncremental() {
       </div>
       <${Lbl} mt>what is not incremental<//>
       <div className="callout bad">
-        Only <b>parsing</b> is cached. The graph is rebuilt from scratch on every index — all three
-        passes, every edge re-resolved — because one changed file can alter which definition a call in
+        Only <b>parsing</b> is cached. The graph is rebuilt from scratch on every index, all three
+        passes, every edge re-resolved, because one changed file can move where a call in
         an untouched file resolves to. Caching the graph itself would be wrong, not merely harder.
       </div>
       <div className="callout bad" style=${{ marginTop: "10px" }}>
@@ -1900,7 +1621,7 @@ function FlowDiagram() {
 // Derived from the production imports of every .go file in the repo.
 const ARCH = {
   layers: [
-    { n: 0, label: "leaves — depend on nothing internal", pkgs: [
+    { n: 0, label: "leaves: depend on nothing internal", pkgs: [
       { p: "parser", c: 9, t: 8, ext: "go-tree-sitter" },
       { p: "diff", c: 1, t: 1, ext: "go-diff" },
       { p: "config", c: 1, t: 1, ext: "yaml.v3" }
@@ -1911,7 +1632,7 @@ const ARCH = {
     { n: 2, label: "the decision", pkgs: [
       { p: "analyzer", c: 4, t: 6, deps: ["diff", "graph"] }
     ] },
-    { n: 3, label: "consumers — read the decision, never make one", pkgs: [
+    { n: 3, label: "consumers: read the decision, never make one", pkgs: [
       { p: "ownership", c: 3, t: 2, deps: ["analyzer", "diff"] },
       { p: "output", c: 6, t: 2, deps: ["analyzer", "graph", "ownership"] },
       { p: "server", c: 1, t: 1, deps: ["analyzer", "diff", "graph", "ownership"] },
@@ -1923,9 +1644,9 @@ const ARCH = {
   ],
   seams: [
     { t: "parser.FileResult", from: "parser", to: "graph",
-      d: "functions, classes, imports, call sites — the same shape whether go/ast or tree-sitter produced it" },
+      d: "functions, classes, imports, call sites, in the same shape whether go/ast or tree-sitter produced it" },
     { t: "graph.GraphData", from: "graph", to: "analyzer · output · server · eval",
-      d: "nodes and edges plus provenance. Serialisable, so it is also the on-disk artifact" },
+      d: "nodes and edges, plus a record of where they came from. This is also exactly what gets written to disk" },
     { t: "analyzer.AnalysisResult", from: "analyzer", to: "output · server",
       d: "one struct every surface renders. Nothing is recomputed per surface, so they cannot disagree" }
   ],
@@ -1939,16 +1660,16 @@ const SEQUENCE = [
   { pkg: "cmd/tracescope", call: "main()", note: "one job: turn an error into an exit code" },
   { pkg: "internal/cmd", call: "runAnalyze", note: "merge config with flags, read the diff from stdin" },
   { pkg: "internal/diff", call: "ParseUnifiedDiff", note: "hunks → changed line ranges" },
-  { pkg: "internal/graph", call: "Store.Load", note: "the saved graph — no parsing happens here" },
+  { pkg: "internal/graph", call: "Store.Load", note: "the saved graph; no parsing happens here" },
   { pkg: "internal/analyzer", call: "MapDiffToFunctions", note: "line ranges → seed functions" },
   { pkg: "internal/graph", call: "ComputeBlastRadius", note: "reverse BFS, bounded at depth 5" },
   { pkg: "internal/analyzer", call: "Score + computeReviewScore", note: "tier, then ranking key" },
   { pkg: "internal/ownership", call: "ResolveOwnership", note: "only with --owners; shells out to git" },
-  { pkg: "internal/output", call: "PrintAnalysis", note: "render — terminal, JSON, markdown or HTML" },
+  { pkg: "internal/output", call: "PrintAnalysis", note: "render to terminal, JSON, markdown or HTML" },
   { pkg: "internal/cmd", call: "ResolveExit", note: "0 · 1 · 2 · 3, and the process ends" }
 ];
 
-// Design invariants: properties the graph and the score are required to hold.
+// The rules the graph and the ranking have to hold.
 // Each states the rule, why it is necessary, and the failure mode if it lapses.
 const INVARIANTS = [
   { rule: "One CALLS edge per (caller, callee) pair",
@@ -1964,8 +1685,8 @@ const INVARIANTS = [
     breaks: "Test functions occupy the top of the list a reviewer is directed to read first.",
     where: "analyzer/risk_scorer.go:69" },
   { rule: "Each piece of evidence enters the score exactly once",
-    holds: "The risk tier already encodes caller count and export status. Anything added afterwards must be orthogonal to it: depth, test-ness, path confidence.",
-    breaks: "Caller count is counted twice, and a linear term saturates so 6 and 600 callers rank identically.",
+    holds: "The risk tier already encodes caller count and export status. Anything added afterwards has to be something the tier does not already know about: how far away it is, whether it is a test, how trustworthy the route was.",
+    breaks: "Caller count is counted twice, and the caller term stops growing, so 6 and 600 callers end up ranked the same.",
     where: "analyzer/blast_radius.go:246" },
   { rule: "CALLS edges are followed only into function nodes",
     holds: "A SCIP index emits a CALLS edge from a function to each type it references. A call, by definition, targets a function.",
@@ -1980,7 +1701,7 @@ const INVARIANTS = [
     breaks: "A diff maps onto whatever now occupies those line numbers, and the report is confidently wrong.",
     where: "cmd/index.go:507" },
   { rule: "The exit code is the contract; everything else is a side effect",
-    holds: "Posting a PR comment can fail for reasons unrelated to the code under review — a token, a rate limit, a detached checkout.",
+    holds: "Posting a PR comment can fail for reasons unrelated to the code under review: a token, a rate limit, a detached checkout.",
     breaks: "A transient API failure blocks a merge and the risk signal is lost behind an unrelated error.",
     where: "cmd/analyze.go:182" }
 ];
@@ -1997,13 +1718,13 @@ function MechPackages() {
       <${Lbl}>11 packages · arrows point from dependent to dependency<//>
       <${ArchDiagram} />
       <div className="callout" style=${{ marginTop: "14px" }}>
-        Dependencies point one way only — downward on this diagram. <b>parser</b>, <b>diff</b> and
+        Dependencies point one way only, downward on this diagram. <b>parser</b>, <b>diff</b> and
         ${" "}<b>config</b> import nothing internal at all, which is why they are the easiest packages to
         test and the ones with the densest test files.
       </div>
       <${Scale}>
         Counts are ${"code"}+${"test"} files per package, read from the repository. The layering is
-        derived from actual production imports, not drawn by hand — and a cycle check over those
+        derived from actual production imports, not drawn by hand, and a cycle check over those
         imports finds <b>none</b>.
       <//>
     </div>`;
@@ -2012,7 +1733,7 @@ function MechPackages() {
 function MechSeams() {
   return html`
     <div>
-      <${Lbl}>three structs carry everything across a boundary<//>
+      <${Lbl}>three plain structs carry everything across a boundary<//>
       <${FlowDiagram} />
       <${M} className="stack" variants=${listV} initial="hidden" animate="show" style=${{ gap: "14px" }}>
         ${ARCH.seams.map(s => html`
@@ -2035,7 +1756,7 @@ function MechSeams() {
       </div>
       <${Scale}>
         The middle one doubles as the on-disk format. <b>GraphData</b> is what
-        ${" "}<b>graph.json</b> contains — the wire format and the in-memory model are the same type, which
+        ${" "}<b>graph.json</b> contains. The file format and the in-memory model are the same type, which
         is why the artifact is inspectable and why loading it needs no translation layer.
       <//>
     </div>`;
@@ -2078,58 +1799,23 @@ if oi, ok := result.Ownership.(*ownership.OwnershipInfo); ok {`}</pre>
       <div className="callout" style=${{ marginTop: "16px" }}>
         <b>ResolveOwnership</b> takes a slice of the analyzer's own AffectedFunction, so ownership
         depends on analyzer. For the analyzer to hold the result, it would have to depend on ownership
-        — a cycle, which Go rejects outright at compile time.
+        That is a cycle, and Go rejects it at compile time.
       </div>
       <div className="callout bad" style=${{ marginTop: "10px" }}>
-        The escape hatch is an <b>interface{}</b> field and a runtime type assertion in every consumer.
-        It compiles, and it costs the one thing the rest of these seams give you: the compiler no
+        The way out is an <b>interface{}</b> field and a cast wherever it is read.
+        It compiles, and it costs the one thing every other boundary here gives you: the compiler no
         longer knows what is in that field. Passing plain file paths into ownership instead of the
         analyzer's structs would have removed the dependency entirely and kept the field typed.
       </div>
     </div>`;
 }
 
-function MechSequence() {
-  const [step, setStep] = useState(0);
-  useEffect(() => {
-    setStep(0);
-    const t = SEQUENCE.map((_, i) => setTimeout(() => setStep(i + 1), 380 + i * 300));
-    return () => t.forEach(clearTimeout);
-  }, []);
-  return html`
-    <div>
-      <${Lbl}>git diff | tracescope analyze — every package it touches, in order<//>
-      <div className="stack" style=${{ gap: "6px" }}>
-        ${SEQUENCE.map((s, i) => html`
-          <${M} key=${s.call}
-            initial=${{ opacity: 0, x: -8 }}
-            animate=${{ opacity: i < step ? 1 : 0.16, x: 0 }} transition=${T(0.3)}
-            className="row" style=${{ alignItems: "baseline" }}>
-            <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)", width: "18px" }}>
-              ${String(i + 1).padStart(2, "0")}
-            </span>
-            <span className=${"node" + (i === step - 1 ? " seed" : "")} style=${{ minWidth: "148px" }}>${s.pkg}</span>
-            <span style=${{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--ink)", minWidth: "180px" }}>${s.call}</span>
-            <span style=${{ fontSize: "11.5px", color: "var(--ink-3)" }}>${s.note}</span>
-          <//>`)}
-      </div>
-      <div className="callout" style=${{ marginTop: "16px" }}>
-        Control returns to <b>internal/cmd</b> three times — it is the only package that knows the
-        order. Nothing below it calls anything above it, so each of these steps can be tested by
-        handing it a struct and reading one back.
-      </div>
-      <${Scale}>
-        Ten calls, four of them optional depending on flags. The expensive one — parsing every file in
-        the repository — is <b>not on this list</b>: it already happened at index time.
-      <//>
-    </div>`;
-}
 
 function MechInvariants() {
   const [open, setOpen] = useState(0);
   return html`
     <div>
-      <${Lbl}>properties the graph and the score are required to hold<//>
+      <${Lbl}>properties the graph and the ranking must hold<//>
       <div className="stack" style=${{ gap: "3px" }}>
         ${INVARIANTS.map((v, i) => html`
           <div key=${v.rule}>
@@ -2176,355 +1862,503 @@ function MechInvariants() {
     </div>`;
 }
 
+
+/* ══════════════════ the whole system, one diagram ══════════════════ */
+
+// Every box on this diagram is a thing that exists: a command you type, a file
+// on disk, or something printed. The arrows are the only way data moves.
+// Deliberately uses the same eight names as the spine above, so the two
+// pictures are obviously the same system.
+const SYS = {
+  boxes: [
+    { id: "src", t: "source files", s: "93 in this repo", x: 14, y: 8, w: 118, kind: "in" },
+    { id: "diff", t: "git diff", s: "on stdin", x: 300, y: 8, w: 104, kind: "in" },
+
+    { id: "index", t: "tracescope index", s: "walk · parse · resolve", x: 14, y: 74, w: 152, kind: "cmd" },
+    { id: "analyze", t: "tracescope analyze", s: "map · walk · rank", x: 262, y: 74, w: 160, kind: "cmd" },
+
+    { id: "graph", t: "graph.json", s: "662 nodes · 1,483 edges", x: 76, y: 148, w: 168, kind: "file" },
+    { id: "cache", t: "parse_cache.json", s: "sha256 per file", x: 14, y: 214, w: 142, kind: "file" },
+
+    { id: "result", t: "AnalysisResult", s: "one struct, four renderings", x: 262, y: 148, w: 168, kind: "data" },
+
+    { id: "out", t: "terminal · JSON · PR comment · HTML", s: "", x: 236, y: 224, w: 220, kind: "out" },
+    { id: "exit", t: "exit code", s: "0 · 1 · 2 · 3", x: 236, y: 278, w: 104, kind: "out" },
+
+    { id: "read", t: "why · hotspots · report · serve", s: "all read the same graph", x: 14, y: 296, w: 200, kind: "cmd" }
+  ],
+  arrows: [
+    ["src", "index", "b", "t"],
+    ["index", "graph", "b", "t"],
+    ["index", "cache", "b", "t"],
+    ["graph", "analyze", "r", "b"],
+    ["diff", "analyze", "b", "t"],
+    ["analyze", "result", "b", "t"],
+    ["result", "out", "b", "t"],
+    ["out", "exit", "b", "t"],
+    ["graph", "read", "b", "t"]
+  ]
+};
+
+function SystemDiagram({ lit }) {
+  const H = 30;
+  const box = id => SYS.boxes.find(b => b.id === id);
+  const anchor = (b, side) => {
+    switch (side) {
+      case "t": return [b.x + b.w / 2, b.y];
+      case "b": return [b.x + b.w / 2, b.y + H];
+      case "l": return [b.x, b.y + H / 2];
+      default: return [b.x + b.w, b.y + H / 2];
+    }
+  };
+  const stroke = k => k === "in" ? "var(--ink-3)" : k === "cmd" ? "var(--seed)"
+    : k === "file" ? "var(--exact)" : k === "out" ? "var(--heuristic)" : "var(--line)";
+
+  return html`
+    <div className="scroll-x">
+      <svg viewBox="0 0 470 340" style=${{ width: "100%", minWidth: "440px", height: "auto" }}
+        role="img" aria-label="How the parts of TraceScope connect">
+        <defs>
+          <marker id="sysArrow" markerWidth="7" markerHeight="7" refX="5.6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="var(--ink-3)" />
+          </marker>
+        </defs>
+
+        ${SYS.arrows.map(([from, to, fs, ts], i) => {
+          const A = box(from), B = box(to);
+          const [x1, y1] = anchor(A, fs);
+          const [x2, y2] = anchor(B, ts);
+          const mid = fs === "r" ? null : y1 + (y2 - y1) / 2;
+          const d = fs === "r"
+            ? `M ${x1} ${y1} L ${x1 + 16} ${y1} L ${x1 + 16} ${y2} L ${x2} ${y2}`
+            : `M ${x1} ${y1} L ${x1} ${mid} L ${x2} ${mid} L ${x2} ${y2}`;
+          return html`<${MPath} key=${from + to} d=${d} fill="none" stroke="var(--ink-3)"
+            strokeWidth="1" markerEnd="url(#sysArrow)" opacity="0.5"
+            initial=${{ pathLength: 0 }} animate=${{ pathLength: 1 }} transition=${T(0.5, 0.2 + i * 0.09)} />`;
+        })}
+
+        ${SYS.boxes.map((b, i) => html`
+          <${MG} key=${b.id} initial=${{ opacity: 0 }}
+            animate=${{ opacity: !lit || lit === b.id ? 1 : 0.3 }} transition=${T(0.4, i * 0.05)}>
+            <rect x=${b.x} y=${b.y} width=${b.w} height=${H} rx="3"
+              fill=${b.kind === "file" ? "var(--exact-bg)" : "var(--paper)"}
+              stroke=${stroke(b.kind)} strokeWidth="1" />
+            <text x=${b.x + b.w / 2} y=${b.s ? b.y + 14 : b.y + 19} textAnchor="middle"
+              fill=${b.kind === "file" ? "var(--exact)" : "var(--ink)"}
+              style=${{ font: "10.5px var(--mono)" }}>${b.t}</text>
+            ${b.s && html`
+              <text x=${b.x + b.w / 2} y=${b.y + 24} textAnchor="middle" fill="var(--ink-3)"
+                style=${{ font: "8px var(--mono)" }}>${b.s}</text>`}
+          <//>`)}
+      </svg>
+    </div>`;
+}
+
+function MechSystem() {
+  const [lit, setLit] = useState(null);
+  const legend = [
+    { k: "in", l: "what you give it", c: "var(--ink-3)" },
+    { k: "cmd", l: "commands", c: "var(--seed)" },
+    { k: "file", l: "files on disk", c: "var(--exact)" },
+    { k: "out", l: "what you get back", c: "var(--heuristic)" }
+  ];
+  return html`
+    <div>
+      <${Lbl}>every part, and the only ways data moves between them<//>
+      <${SystemDiagram} lit=${lit} />
+      <div className="row" style=${{ marginTop: "12px", gap: "14px" }}>
+        ${legend.map(x => html`
+          <span key=${x.k} className="row" style=${{ gap: "6px" }}>
+            <span style=${{ width: "9px", height: "9px", border: "1px solid " + x.c, borderRadius: "2px" }} />
+            <span style=${{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--ink-3)" }}>${x.l}</span>
+          </span>`)}
+      </div>
+      <div className="callout" style=${{ marginTop: "14px" }}>
+        Read it top to bottom. Your code and your diff go in at the top. One command writes
+        ${" "}<b>graph.json</b>, the other reads it. Nothing else on the page happens outside this picture.
+      </div>
+      <div className="callout" style=${{ marginTop: "10px" }}>
+        The one thing worth noticing: <b>graph.json is the only link between the two halves</b>. Index
+        writes it and stops. Analyze reads it and never touches your source. That is why analysis is
+        fast, and why a graph built at the wrong moment gives a wrong answer.
+      </div>
+      <${Scale}>
+        The four other commands at the bottom left read the same file and add nothing to it, which is
+        why they need no arguments beyond what you are asking about.
+      <//>
+    </div>`;
+}
+
+
+function MechQueries() {
+  const [tab, setTab] = useState("why");
+  return html`
+    <div>
+      <div className="seg" style=${{ marginBottom: "14px" }}>
+        <button type="button" aria-pressed=${tab === "why"} onClick=${() => setTab("why")}>why</button>
+        <button type="button" aria-pressed=${tab === "hot"} onClick=${() => setTab("hot")}>hotspots</button>
+      </div>
+      <${AnimatePresence} mode="wait">
+        <${M} key=${tab} initial=${{ opacity: 0, y: 6 }} animate=${{ opacity: 1, y: 0 }}
+          exit=${{ opacity: 0, y: -6 }} transition=${T(0.26)}>
+          ${tab === "why" ? html`
+            <pre className="code">${"$ "}<b>tracescope why ComputeBlastRadius Analyze --reverse</b>${`
+
+  TraceScope, Call Path (1 hop)
+
+  ComputeBlastRadius             internal/graph/query.go:23 [graph]
+    │
+    │ CALLS
+    ▼
+  Analyze                        internal/analyzer/blast_radius.go:95 [analyzer]`}</pre>
+            <${Lbl} mt>how it reads the names you typed<//>
+            <div className="row" style=${{ marginBottom: "10px" }}>
+              ${["exact", "qualified", "prefix", "substring"].map((m, i) => html`
+                <${React.Fragment} key=${m}>
+                  ${i > 0 && html`<span style=${{ color: "var(--ink-3)", fontSize: "11px" }}>then</span>`}
+                  <span className=${"node" + (i === 0 ? " exact" : "")}>${m}</span>
+                <//>`)}
+            </div>
+            <div className="callout">
+              Most specific first. A bare name matching several packages is refused rather than picked
+              at random, and the candidates are printed so you can say which one you meant.
+            </div>
+            <div className="callout" style=${{ marginTop: "10px" }}>
+              <b>--reverse</b> asks the opposite question. Not does A call B, but does anything lead
+              from B back to A. Same search, adjacency built the other way round.
+            </div>` : html`
+            <div className="scroll-x">
+              <table className="data">
+                <thead><tr><th>function</th><th className="num">in</th><th className="num">out</th>
+                  <th className="num">score</th><th>file</th></tr></thead>
+                <tbody>
+                  ${HOTSPOTS.map(h => html`
+                    <tr key=${h.n}>
+                      <td style=${{ color: h.suspect ? "var(--heuristic)" : "inherit" }}>${h.n}${h.suspect ? " ⚠" : ""}</td>
+                      <td className="num">${h.i}</td>
+                      <td className="num">${h.o}</td>
+                      <td className="num"><b>${h.c}</b></td>
+                      <td style=${{ color: "var(--ink-3)" }}>${h.f}:${h.l}</td>
+                    </tr>`)}
+                </tbody>
+              </table>
+            </div>
+            <div className="callout" style=${{ marginTop: "12px" }}>
+              The score is <b>callers in, doubled, plus calls out</b>. Callers count double because
+              they are the blast radius if that function changes. It is a sum and not a product so
+              that something called everywhere but calling nothing itself does not score zero.
+            </div>
+            <div className="callout bad" style=${{ marginTop: "10px" }}>
+              The top row is wrong, and usefully so. <b>Error</b> shows 47 callers, but those are every
+              err.Error() in the repository landing on one definition. This ranking counts a guessed
+              call exactly like a verified one, so a known mistake sits at the top of it.
+            </div>`}
+        <//>
+      <//>
+      <${Scale}>
+        Neither command needs a diff. Both read the graph that <b>index</b> already wrote, which is why
+        they answer instantly.
+      <//>
+    </div>`;
+}
+
 /* ══════════════════ stage definitions ══════════════════ */
 
 const ACTS = [
   {
-    id: "orient", heroTitle: "What does this pull request actually touch?", heroThesis: "Start here. TraceScope is a command you pipe a diff into; everything else on this page explains what happens between that pipe and the exit code it returns.", label: "I · What it is",
-    title: "A command you pipe a diff into, and the exit code it gives back",
+    id: "system",
+    heroTitle: "What does this pull request actually touch?",
+    heroThesis: "TraceScope reads your repository into a call graph, then uses it to tell you what a change reaches. Start here: the parts, and how they fit together.",
+    label: "I · The system",
+    title: "The parts, and how they connect",
     stages: [
-      { id: "run", spine: "files", t: "What you run", h: "Two commands, and that is the interface",
-        k: "Before any of the machinery: this is a CLI. You index once, then pipe git diff into it as often as you like.",
+      { id: "run", spine: "files", t: "What it does", h: "Two commands, and that is the interface",
+        k: "You index once. After that you pipe a diff in as often as you like.",
         M: MechRun,
-        why: html`<p>The split is deliberate. <strong>Indexing is expensive and shared</strong> — it
-          parses every file in the repository. <strong>Analysis is cheap and per-change</strong> — it
-          reads the saved graph and walks it. Merging them would mean re-parsing the whole codebase on
-          every pull request.</p>
-          <p>Analysis takes a unified diff on stdin and nothing else. It never needs your branch, your
-          remote, or a GitHub token — those are optional extras for posting a comment.</p>`,
-        limit: "The graph is a snapshot, so it can describe a revision you are no longer on. Analysis refuses to run in that case rather than reporting against drifted line numbers, but detecting it needs a git checkout: outside a repository the commit is unknown and the check cannot fire.",
-        refs: ["internal/cmd/index.go:36", "internal/cmd/analyze.go:48", "internal/cmd/root.go:17"] },
-      { id: "artifact", spine: "graph", t: "The artifact", h: "Everything it knows, in one JSON file",
-        k: "The graph is not a database or a daemon. It is a file you can open, diff and delete.",
+        why: html`<p>Indexing is the expensive half. It opens every file in the repository. Analysis is
+          the cheap half: it reads the saved graph and walks it. Keeping them apart means a pull
+          request does not pay for re-reading code that has not changed.</p>
+          <p>Analysis takes a diff on standard input and nothing else. No branch name, no remote, no
+          token. Those are only needed if you also want a comment posted.</p>`,
+        limit: "The graph is a snapshot, so it can describe a revision you are no longer on. Analysis refuses to run in that case instead of reporting against shifted line numbers. Outside a git checkout there is no commit to compare, so the check cannot fire at all.",
+        refs: ["internal/cmd/index.go:36", "internal/cmd/analyze.go:49"] },
+
+      { id: "map", spine: "graph", t: "The whole system", h: "Every part, on one diagram",
+        k: "Nine boxes. Everything else on this page is a detail inside one of them.",
+        M: MechSystem,
+        why: html`<p>Two commands, one file between them. <strong>index</strong> writes graph.json,
+          ${" "}<strong>analyze</strong> reads it. The four smaller commands read the same file and write
+          nothing, which is why they are cheap and why they can never disagree with the analysis.</p>
+          <p>Data only moves along the arrows. There is no database, no daemon, and no shared state
+          between runs beyond that one file.</p>`,
+        limit: "Everything depends on one artifact, so everything inherits its faults. If the graph is missing an edge, the blast radius is missing a result, the hotspot ranking is missing a caller, and nothing anywhere reports a gap.",
+        refs: ["internal/graph/store.go:20", "internal/cmd/analyze.go:112"] },
+
+      { id: "artifact", spine: "graph", t: "The file it writes", h: "Everything it knows, in one JSON file",
+        k: "Not a database and not a running service. A file you can open, diff and delete.",
         M: MechArtifact,
-        why: html`<p>Keeping the whole index in one readable artifact is what makes the rest of the
-          tool inspectable: you can answer "why did it think that?" by opening the file, and you can
-          check a suspicious result by grepping it.</p>
-          <p>It also carries its own provenance — the commit and remote it was built from — so a
-          consumer can tell whether it describes the code in front of them.</p>`,
-        limit: "Node paths are absolute, so the artifact is tied to the machine that built it: move it and ownership lookups and path matching degrade. Diagnostics are capped at 200 entries, so the issue list is a sample rather than a full account.",
-        refs: ["internal/graph/types.go:98", "internal/graph/store.go:20", "internal/graph/builder.go:15"] },
-      { id: "reading", spine: "output", t: "Reading a result", h: "What a row is actually telling you",
-        k: "Three separate judgements sit in every row, and conflating them is the easiest way to misread the output.",
-        M: MechReading,
-        why: html`<p>The <strong>tier</strong> answers how bad. The <strong>score</strong> answers what
-          to read first. The <strong>confidence</strong> answers whether to believe the connection at
-          all. They are computed from different evidence and deliberately not collapsed into a single
-          number.</p>
-          <p>Every row also carries the chain of calls that produced it, so no claim has to be taken on
-          trust — you can open two files and check.</p>`,
-        limit: "Two caller counts appear on the same line — total and production — because both are genuinely useful: one is coupling, the other is what the tier was computed from. They are labelled distinctly, but a reader still has to know why they differ.",
-        refs: ["internal/output/terminal.go:163", "internal/analyzer/blast_radius.go:22", "internal/analyzer/risk_scorer.go:40"] },
-      { id: "why", spine: "graph", t: "why", h: "Is there a call path between these two?",
-        k: "The question you ask when a result surprises you.",
-        M: MechWhyCmd,
-        why: html`<p>Breadth-first search over CALLS edges, so the path returned is the shortest one.
-          ${" "}<strong>--reverse</strong> flips the adjacency to ask "what leads back to here" instead.</p>
-          <p>Name resolution refuses to guess: a query matching several functions prints the
-          candidates and exits with an error rather than picking one.</p>`,
-        limit: "It follows CALLS edges only — a dependency through a shared type or an interface is invisible here, even though the blast radius does follow those. And \"no path exists\" is only as true as the graph: with 23% of call sites resolved, absence of a path is weak evidence.",
-        refs: ["internal/graph/pathfinder.go:99", "internal/graph/pathfinder.go:33", "internal/cmd/why.go:76"] },
-      { id: "hotspots", spine: "graph", t: "hotspots", h: "What is fragile, with no diff at all",
-        k: "A standing view of the codebase rather than a per-change one.",
-        M: MechHotspots,
-        why: html`<p>Coupling as a static property: inbound callers weighted double, plus outbound
-          calls. Inbound is weighted higher because it is the blast radius if that function changes,
-          which is the thing you actually care about.</p>`,
-        limit: "It ignores confidence completely, counting a guessed edge exactly like a compiler-verified one — which puts a known mis-resolution at the top of the list on this very repository. Weighting inbound edges by confidence would fix the ranking; nothing does that today.",
-        refs: ["internal/analyzer/hotspots.go:37", "internal/analyzer/hotspots.go:77", "internal/cmd/hotspots.go:21"] },
-      { id: "visual", spine: "output", t: "report + serve", h: "The same data, for people who want to look at it",
-        k: "One writes a file you can email; the other runs an API a dashboard talks to.",
-        M: MechVisualSurfaces,
-        why: html`<p>Both read the saved graph and add no analysis of their own. <strong>report</strong>
-          embeds D3 into the binary so the output is a single file that works offline;
-          ${" "}<strong>serve</strong> exposes the engine over HTTP for the Next.js dashboard.</p>`,
-        limit: "The server has no authentication at all — loopback binding is the only thing protecting it, and --host removes that. The report embeds the entire graph regardless of what the diff touched, so its size tracks the repository rather than the change.",
-        refs: ["internal/output/report.go:29", "internal/server/server.go:65", "internal/cmd/serve.go:40"] },
-      { id: "config", spine: "files", t: "Configuration", h: "What you can change, and what you cannot",
-        k: "Flags beat the config file, which beats the built-in defaults.",
-        M: MechConfig,
-        why: html`<p>The config file is found by walking up from the working directory, so a
-          monorepo's settings apply to any subdirectory you run from. A malformed file degrades to
-          defaults with a warning rather than to zero values.</p>`,
-        limit: "The risk thresholds — the numbers that decide what fails your build — have no command-line flags, so tuning the gate means committing a file. Out-of-range values are reported rather than applied, which is safe but means a typo silently leaves you on the defaults until you read the warning.",
-        refs: ["internal/config/config.go:42", "internal/config/config.go:28", "internal/cmd/root.go:21"] }
-    ]
-  },
-  {
-    id: "arch", heroTitle: "Eleven packages, one direction of travel", heroThesis: "Before the mechanisms, the shape. Dependencies point one way, three plain structs cross every boundary, and one interface{} field is what keeps the graph acyclic.", label: "II · Architecture",
-    title: "Eleven packages, one direction of travel",
-    stages: [
-      { id: "packages", spine: "graph", t: "Package map", h: "What the pieces are, and which way they point",
-        k: "Before any single mechanism: the shape of the thing. Five layers, and dependencies that only ever point downward.",
+        why: html`<p>Keeping the whole index in one readable file is what makes the rest of the tool
+          inspectable. You can answer why did it think that by opening the file, and check a
+          surprising result by searching it.</p>
+          <p>It also records where it came from, so anything reading it can tell whether it
+          describes the code in front of you.</p>`,
+        limit: "Paths inside it are absolute, so the file is tied to the machine that wrote it. Move it and author lookups and path matching start to fail. The list of resolution problems stops at 200 entries, so it is a sample rather than a full account.",
+        refs: ["internal/graph/types.go:98", "internal/graph/store.go:20"] },
+
+      { id: "packages", spine: "graph", t: "Inside the box", h: "Eleven packages, all pointing one way",
+        k: "The same system again, now as code: which package holds what, and who is allowed to call whom.",
         M: MechPackages,
-        why: html`<p>The layering is not decoration — it is enforced by the compiler. Go refuses an
-          import cycle outright, so a package can only reach for things beneath it. That constraint is
-          why <strong>parser</strong> can be swapped, <strong>output</strong> can grow a fourth
-          surface, and neither change reaches the other.</p>
-          <p>The three leaf packages import nothing internal at all, which makes them trivially
-          testable — and unsurprisingly they carry the densest test files in the repo.</p>`,
-        limit: "internal/cmd imports every other package and holds eleven files of flag wiring, config merging and orchestration. It is the one place the layering buys nothing, and the obvious candidate for splitting if the command set grows further.",
-        refs: ["cmd/tracescope/main.go:10", "internal/cmd/root.go:17", "internal/parser/parser.go"] },
-      { id: "seams", spine: "graph", t: "The seams", h: "Three structs carry everything across a boundary",
-        k: "Layers are only as good as what passes between them. Here it is three plain structs and nothing else.",
+        why: html`<p>Dependencies only point downward on this diagram. Go refuses to compile an import
+          cycle, so this is checked by the compiler rather than by convention.</p>
+          <p>That is what lets the pieces move independently. A second parser can be added without the
+          graph builder knowing, and a fourth output format without the analyzer knowing.</p>`,
+        limit: "internal/cmd sits above everything and holds eleven files of flag parsing, config merging and ordering. It is the one place the layering does no work, and the first thing to split if the command set grows.",
+        refs: ["cmd/tracescope/main.go:10", "internal/cmd/root.go:17"] },
+
+      { id: "seams", spine: "graph", t: "What crosses", h: "Three structs carry everything",
+        k: "Packages only talk to each other through three plain data types.",
         M: MechSeams,
-        why: html`<p>Each boundary is a <strong>data</strong> contract, not a behavioural one — no
-          interfaces, no callbacks, no inversion of control. A producer fills a struct, consumers read
-          it. That keeps the seams obvious and the tests cheap: hand a struct in, assert on the struct
-          that comes out.</p>
-          <p><strong>GraphData</strong> pulls double duty as the on-disk format, so the wire format and
-          the in-memory model cannot drift apart.</p>`,
-        limit: "Because GraphData is also the serialised artifact, every field added for internal convenience lands in the public JSON, and removing one is a breaking change for anything parsing it. The struct has to be treated as an API, not a convenience.",
-        refs: ["internal/parser/parser.go FileResult", "internal/graph/types.go:98", "internal/analyzer/blast_radius.go:37"] },
-      { id: "cycle", spine: "graph", t: "The cycle", h: "Where the layering had to be bought with a type hole",
-        k: "The dependency graph is acyclic. One field is the reason it can be.",
+        why: html`<p>Every boundary is data, not behaviour. No interfaces, no callbacks. One package
+          fills a struct, another reads it. That makes each side testable on its own: hand it a
+          struct, check the struct that comes back.</p>
+          <p>GraphData does double duty as the file format, so what is in memory and what is on disk
+          cannot drift apart.</p>`,
+        limit: "Because GraphData is also the saved file, any field added for internal convenience becomes part of a format other tools may read. Removing one is a breaking change, so the struct has to be treated as an API.",
+        refs: ["internal/graph/types.go:98", "internal/analyzer/blast_radius.go:37"] },
+
+      { id: "cycle", spine: "graph", t: "The one exception", h: "Where the layering had to be paid for",
+        k: "The dependency graph has no cycles. One untyped field is the reason it can.",
         M: MechCycle,
-        why: html`<p>Ownership needs the analyzer's types to do its job, so it imports analyzer. The
-          result then needs to travel back inside AnalysisResult — which would make analyzer import
-          ownership, and close a cycle Go will not compile.</p>
-          <p>The chosen fix is an untyped field plus a type assertion at each read. It is worth knowing
-          this is a <em>trade</em>, not a free win: the cycle is gone, and so is the compiler's
-          knowledge of what that field holds.</p>`,
-        limit: "Every consumer of the field repeats the same assertion, and a wrong type fails silently at runtime rather than loudly at build time. Passing plain paths into ownership instead of analyzer structs would have removed the dependency and kept the field typed.",
-        refs: ["internal/analyzer/blast_radius.go:48", "internal/ownership/ownership.go:16", "internal/output/github.go:106"] },
-      { id: "sequence", spine: "radius", t: "One run, end to end", h: "Every package a single analyze touches",
-        k: "The same pipeline the later acts take apart, seen as a call sequence across module boundaries.",
-        M: MechSequence,
-        why: html`<p>Ten calls, in one direction, with control returning to <strong>internal/cmd</strong>
-          between phases. Nothing below cmd reaches upward, which is what makes each phase testable in
-          isolation.</p>
-          <p>Note what is absent: no parsing, no filesystem walk, no network. Those belong to indexing,
-          and analysis deliberately inherits their results rather than repeating them.</p>`,
-        limit: "The ordering lives implicitly in one long function, runAnalyze, rather than in a pipeline type. Adding a phase means editing that function and hoping the ordering constraints — ownership after scoring, exit code last — are noticed.",
-        refs: ["internal/cmd/analyze.go:48", "internal/analyzer/blast_radius.go:95", "internal/cmd/exit.go:22"] },
-      { id: "invariants", spine: "score", t: "Design invariants", h: "The properties the output depends on",
-        k: "Eight properties the graph and the score must hold. Each is enforced at a specific line and covered by a regression test.",
+        why: html`<p>Ownership needs the analyzer's types to do its job, so it imports the analyzer.
+          The result then has to travel back inside AnalysisResult, which would make the analyzer
+          import ownership and close a loop that Go will not compile.</p>
+          <p>The way out was an untyped field and a cast at every read. It works, and it costs the one
+          thing the other boundaries give you: the compiler no longer knows what is in there.</p>`,
+        limit: "Every reader repeats the same cast, and a wrong type fails when the program runs rather than when it builds. Passing plain file paths into ownership instead of analyzer structs would have removed the dependency and kept the field typed.",
+        refs: ["internal/analyzer/blast_radius.go:48", "internal/ownership/ownership.go:16"] },
+
+      { id: "invariants", spine: "score", t: "The rules", h: "What the output is allowed to assume",
+        k: "Eight properties the graph and the ranking have to hold. Each is enforced at one line and covered by a test.",
         M: MechInvariants,
-        why: html`<p>An invariant is a property the rest of the system is entitled to assume. Stated
-          plainly, with its failure mode, it tells the next engineer why the obvious simplification is
-          wrong — which a bare condition in the code cannot do on its own.</p>
-          <p>Several of these are non-obvious enough that the correct-looking implementation violates
-          them. Counting call edges to get caller counts looks right until one function calls another
-          in a loop.</p>`,
-        limit: "The package layering is enforced by the compiler; these are enforced only by regression tests and comments. Nothing structurally prevents a future change from violating one — the test would fail, but a test can be deleted as easily as it can be read.",
-        refs: ["internal/analyzer/blast_radius.go:246", "internal/graph/builder.go:316", "internal/graph/query.go:47"] }
+        why: html`<p>A rule written down with its failure mode tells the next person why the obvious
+          simplification is wrong. The condition in the code cannot do that on its own.</p>
+          <p>Several of them are not obvious. Counting call edges to get caller counts looks right
+          until one function calls another inside a loop.</p>`,
+        limit: "The package layering is checked by the compiler. These are checked only by tests and comments, so nothing structurally stops a later change from breaking one. The test would fail, but a test can be deleted as easily as it can be read.",
+        refs: ["internal/graph/builder.go:316", "internal/analyzer/risk_scorer.go:69"] }
     ]
   },
+
   {
-    id: "build", heroTitle: "First, it has to read your codebase", heroThesis: "Indexing happens once. A directory walk, two parser front ends, a resolution ladder, and a graph stamped with the commit it describes.", label: "III · Build the graph",
-    title: "From a directory of files to a graph bound to one commit",
+    id: "index",
+    heroTitle: "First it has to read your code",
+    heroThesis: "Indexing turns a directory of files into one graph of functions and the calls between them. This is where accuracy is won or lost, because everything later just reads what this produced.",
+    label: "II · Indexing",
+    title: "From files on disk to a graph you can query",
     stages: [
-      { id: "walk", spine: "files", t: "Walk", h: "Find the source, skip the noise",
-        k: "One WalkDir pass decides what the tool will ever be able to see. Everything downstream inherits this filter.",
+      { id: "walk", spine: "files", t: "Find the files", h: "What the tool can see",
+        k: "One pass over the directory decides what will ever be in the graph.",
         M: MechWalk,
-        why: html`<p>The walk skips on the way <strong>down</strong>: returning SkipDir on node_modules
-          means its entire subtree is never stat-ed. Dot directories are skipped by rule, with
-          ${" "}<strong>.github</strong> explicitly allow-listed so CI workflows stay visible.</p>
-          <p>WalkDir is used rather than Walk because it does not follow symlinks, and there is an
-          explicit guard for irregular entries — Windows directory junctions make Walk recurse
-          forever.</p>`,
-        limit: "Files are classified by extension alone. A Go file behind a build tag is still parsed, generated code is indistinguishable from hand-written code, and .min.js is detected by filename rather than content.",
-        refs: ["internal/parser/walker.go:46", "walker.go:20 skipDirs", "walker.go:31 allowDotDirs"] },
-      { id: "parse", spine: "parse", t: "Parse", h: "Two front ends, one FileResult",
-        k: "Go goes through the standard library's own parser and type checker. Everything else goes through tree-sitter.",
-        M: MechParse,
-        why: html`<p>Both front ends normalise to the same <strong>FileResult</strong>: functions,
-          classes, imports and call sites. That shared shape is why the graph builder does not care
-          which language it is looking at.</p>
-          <p>A syntax error does not discard the file. go/parser returns a partial AST alongside the
-          error, and the registry keeps those recovered nodes rather than losing the file entirely.</p>`,
-        limit: "Files over 10 MB are skipped silently — they are not reported as gaps, they simply are not in the graph. The 30-second tree-sitter timeout has the same property.",
-        refs: ["internal/parser/registry.go:35", "internal/parser/golang.go:21", "internal/parser/treesitter.go:12"] },
-      { id: "source", spine: "parse", t: "Index source", h: "SCIP if it can, parser if it must",
-        k: "The single most consequential branch in the tool: which backend builds the graph.",
-        M: MechScip,
-        why: html`<p>An existing <strong>index.scip</strong> at the root wins outright. Otherwise the
-          tool builds one candidate per language, each gated on a project marker — go.mod,
-          package.json, pyproject.toml — and records a status for every one: generated, cached,
-          skipped, missing_binary or failed.</p>
-          <p>Reporting the status matters more than it looks. A silently absent indexer would degrade
-          the graph without ever saying so.</p>`,
-        limit: "Cache freshness is decided by file modification time, not content hash — unlike the parser cache, which uses sha256. Touching a file invalidates a SCIP index that did not actually change.",
-        refs: ["internal/cmd/index.go:226", "index.go:238 generateSCIPIndexes", "index.go:477 scipIndexCacheFresh"] },
-      { id: "resolve", spine: "graph", t: "Resolve", h: "Turning a name into an edge",
-        k: "A call site is a string. Deciding which definition it points at is where a call graph is won or lost.",
-        M: MechResolve,
-        why: html`<p>The parser backend walks an ordered ladder and stops at the first rung that
-          matches, tagging the edge EXACT or HEURISTIC by <em>how</em> it matched. If more than one
-          candidate fits, the edge is <strong>dropped as ambiguous</strong> rather than guessed.</p>
-          <p>A call that still reaches the bare-name rungs while <em>having</em> a receiver is
-          resolved, but only as heuristic: matching <code>Foo</code> without knowing what
-          ${" "}<code>x</code> is in <code>x.Foo()</code> is a guess, however plausible.</p>`,
-        limit: "Only 23% of call sites resolve on this repo. Three thousand unresolved calls means the blast radius is a lower bound — the honest reading of any result is \"at least this much\", never \"exactly this much\".",
-        refs: ["internal/graph/builder.go:592", "builder.go:759 bareConfidence", "internal/graph/types.go:26"] },
-      { id: "bounds", spine: "graph", t: "Refine bounds", h: "Widening a symbol to its body",
-        k: "A fix that only makes sense once you know what the diff mapper does with line numbers.",
-        M: MechBounds,
-        why: html`<p>scip-go emits definition ranges that cover the <strong>identifier</strong>, not the
-          function body, so StartLine equals EndLine. TraceScope re-parses each Go file with go/ast
-          purely to adopt the real body bounds.</p>
-          <p>It is an unglamorous correction that exists entirely to serve a later stage — which is
-          usually where the real bugs live.</p>`,
-        limit: "The correction is Go-only. TypeScript and Python function bounds still come from whatever their indexer reported, so the same class of silent mis-mapping remains possible there.",
-        refs: ["internal/graph/scip.go:257", "internal/analyzer/diff_mapper.go:144"] },
-      { id: "incremental", spine: "parse", t: "Incremental", h: "Hash first, parse only what moved",
-        k: "The second index is fast because most files are provably unchanged.",
-        M: MechIncremental,
-        why: html`<p>Every file's sha256 is stored with the graph. On a later index the hash is
-          recomputed and, when it matches, the previously parsed result is restored from the cache
-          instead of re-parsing.</p>
-          <p>The cache is written to a uniquely named temp file and renamed, so two indexes running at
-          once cannot leave a half-written cache behind.</p>`,
-        limit: "Only parsing is cached — the graph is fully rebuilt every time, because a change in one file can alter which definition a call in an untouched file resolves to. Caching the graph would be incorrect, not merely harder.",
-        refs: ["internal/parser/cache.go:19", "internal/cmd/index.go:110", "internal/graph/types.go:80"] },
-      { id: "bind", spine: "graph", t: "Bind + save", h: "A graph that knows which commit it describes",
-        k: "Line numbers are only meaningful relative to a revision. So the graph records its own.",
-        M: MechBind,
-        why: html`<p>Commit and origin remote are stamped at save time, and analyze compares the stored
-          commit against HEAD. A stale graph does not fail loudly — it quietly maps diff lines onto
-          functions that have since moved, which is the worst kind of wrong.</p>
-          <p>The write itself goes to a temp file and is renamed, so an interrupted index leaves the
-          previous graph intact rather than a truncated one.</p>`,
-        limit: "It is a warning, not a refusal — analysis proceeds on the stale graph. The repo remote is recorded but never checked, so a graph from a different repository entirely would be used without complaint.",
-        refs: ["internal/cmd/index.go:507", "internal/graph/store.go:20", "internal/cmd/analyze.go:118"] }
-    ]
-  },
-  {
-    id: "pr", heroTitle: "Then a diff arrives, and something has to decide", heroThesis: "Hunks become line ranges, ranges become seed functions, callers are walked backwards, and what comes back is ranked and turned into an exit code.", label: "IV · Analyse a PR",
-    title: "A diff arrives, and something has to decide what it touches",
-    stages: [
-      { id: "diff", spine: "diff", t: "Diff", h: "Hunks into line ranges", k: "The input is a unified diff on stdin. Nothing else.",
-        M: MechDiff,
-        why: html`<p>Each hunk body is walked line by line, tracking a position in the
-          ${" "}<strong>new</strong> file. Additions open a range; context lines close it.</p>
-          <p>Deletions are the hard case, and the reason this stage has a dedicated scenario.</p>`,
-        limit: "Binary files are detected by scanning the extended header for the word \"binary\" — a text file whose diff header happens to contain that word would be skipped.",
-        refs: ["internal/diff/parser.go:24", "parser.go:60 extractChangedLinesFromBody"] },
-      { id: "map", spine: "diff", t: "Map", h: "Which functions do those lines sit inside?",
-        k: "Line ranges meet function bounds. The intersection is the change.",
-        M: MechMap,
-        why: html`<p>Purely geometric: a function is changed if any changed range overlaps
-          [StartLine, EndLine]. No name matching, no heuristics.</p>
-          <p>The tricky half is paths — the diff says internal/x.go, the graph stores an absolute OS
-          path — so matching is done on <strong>path segments</strong> and ties break alphabetically
-          for determinism.</p>`,
-        limit: "Overlap is only as good as the bounds in the graph, which is why the stale-commit warning matters. A graph one commit behind will map a diff onto whatever now occupies those line numbers.",
-        refs: ["internal/analyzer/diff_mapper.go:19", "diff_mapper.go:111 matchGraphPath", "diff_mapper.go:130 pathSegmentSuffix"] },
-      { id: "seeds", spine: "radius", t: "Seeds", h: "What actually starts the traversal",
-        k: "A bug that became a rule: never let a file and its functions both seed.",
-        M: MechSeeds,
-        why: html`<p>Function-level seeds are preferred. A file node is added only for files where no
-          function matched — a config file, or a file whose functions the backend could not
-          resolve.</p>`,
-        limit: "If the graph resolved no functions for a changed source file, that file seeds at file level and the traversal is much coarser. The report does not distinguish that case from a genuinely small blast radius.",
-        refs: ["internal/analyzer/blast_radius.go:112", "blast_radius.go:134"] },
-      { id: "traverse", spine: "radius", t: "Traverse", h: "Reverse BFS, bounded",
-        k: "Follow callers upward. Stop at depth 5.",
-        M: MechTraverse,
-        why: html`<p>Edges are followed <strong>backwards</strong>: A calls B, so if B changes, A is
-          affected. CALLS, CONTAINS, EXTENDS and IMPLEMENTS all propagate; IMPORTS deliberately does
-          not, because file-level imports would pull in half the repository.</p>
-          <p>CALLS edges are followed only into function nodes. The SCIP indexer also emits a CALLS
-          edge from a function to a <em>type</em> it references, and treating those as call
-          dependencies turned shared types into hubs that flooded the radius.</p>`,
-        limit: "Depth 5 is a fixed default with no principle behind it. Everything past hop 5 is invisible, and the report gives no signal that the frontier was cut rather than exhausted.",
-        refs: ["internal/graph/query.go:23", "query.go:47 CALLS guard", "query.go:100 depth bound"] },
-      { id: "score", spine: "score", t: "Score", h: "Tiers, then a ranking key",
-        k: "Two separate mechanisms that are easy to confuse: the risk tier and the review score.",
-        M: MechScore,
-        why: html`<p>The tier is a ladder of rules over production caller count, export status and
-          depth. The review score then orders functions <em>within</em> those tiers.</p>
-          <p>Only production callers count. A helper called from forty tests and one handler is not a
-          review priority, and counting raw fan-in would say otherwise.</p>`,
-        limit: "The tiers are coarse: everything from 3 production callers to 9 lands on the same MEDIUM base, and ordering within a tier rests entirely on hand-picked constants that were never fitted to data.",
-        refs: ["internal/analyzer/risk_scorer.go:40", "risk_scorer.go:69 test rung", "internal/analyzer/blast_radius.go:259"] },
-      { id: "why", spine: "graph", t: "Why-path", h: "The chain that justifies the claim",
-        k: "A ranked list nobody can verify is a list nobody trusts.",
-        M: MechWhy,
-        why: html`<p>Every affected function ships with the edge chain that reached it, reconstructed
-          from the BFS parent map. It makes each row falsifiable: open the two files and check the
-          call exists.</p>
-          <p>Path confidence is the <strong>weakest link</strong> — one heuristic hop marks the whole
-          path heuristic, and costs the row 8 points.</p>`,
-        limit: "The path is the shortest one, not necessarily the most important one. A function reachable by one obscure route and twenty obvious ones shows only the route BFS happened to find first.",
-        refs: ["internal/analyzer/blast_radius.go:207", "internal/graph/query.go:125 mergeConfidence"] },
-      { id: "owners", spine: "output", t: "Owners", h: "Who should look at this",
-        k: "The stage most easily skipped, and the first thing a reviewer actually wants.",
-        M: MechOwners,
-        why: html`<p>Two sources, deliberately independent: CODEOWNERS for policy, git log for reality.
-          Reviewers are suggested for the affected files as well as the changed ones, since the point
-          of a blast radius is that the damage is not where you edited.</p>`,
-        limit: "git log -1 gives the last person to touch a file, which is not the same as the person who understands it. And it is per-file, so a 900-line file has exactly one \"owner\" no matter how many people work in it.",
-        refs: ["internal/ownership/ownership.go:16", "internal/ownership/codeowners.go:79", "internal/ownership/git_log.go:22"] },
-      { id: "surfaces", spine: "output", t: "Surfaces", h: "Four renderings, one result",
-        k: "Terminal, JSON, GitHub markdown, standalone HTML.",
-        M: MechSurfaces,
-        why: html`<p>Each surface is a pure function of the same AnalysisResult. The GitHub comment
-          carries a hidden marker so a repeat run <strong>edits its own comment</strong> instead of
-          adding a new one on every push.</p>
-          <p>Paths in the comment are rendered relative to the repository root, so a public comment
-          never publishes the indexing machine's directory layout.</p>`,
-        limit: "Four renderings mean four places a field can be forgotten. Ownership reaches the terminal and the markdown comment but is absent from the HTML report, and nothing in the type system notices.",
-        refs: ["internal/output/github.go:19 repoRelativePath", "github.go:273", "internal/output/terminal.go:26"] },
-      { id: "exit", spine: "exit", t: "Exit code", h: "The part CI actually reads",
-        k: "Everything above is advisory until it becomes a number between 0 and 3.",
-        M: MechExit,
-        why: html`<p>0 clean, 1 HIGH, 2 MEDIUM, 3 the tool itself failed. Keeping 3 distinct is the
-          whole design: a broken invocation must never be indistinguishable from a dangerous
-          change. A graph that no longer matches HEAD exits 3 for the same reason — it is not a
-          risky change, it is an answer the tool cannot stand behind.</p>
-          <p>The workflow blocks on 1 and 3, and lets 2 through as advisory.</p>`,
-        limit: "One HIGH anywhere in the radius fails the build regardless of how weak the path was, and the tier is the only thing wired to the gate. A change touching 73 functions can pass while a four-line helper fails.",
-        refs: ["internal/cmd/exit.go:22", "internal/analyzer/blast_radius.go:61", ".github/workflows/tracescope.yml"] }
-    ]
-  },
-  {
-    id: "hood", heroTitle: "Whether any of this is actually true", heroThesis: "The four mechanisms the answer rests on — and the evaluation that tries to prove the ranking does not work.", label: "V · Under the hood",
-    title: "The mechanisms that decide whether any of this is true",
-    stages: [
-      { id: "frontends", spine: "parse", t: "Front ends", h: "A type checker, or a syntax tree",
+        why: html`<p>Skipping happens on the way down. Turning back at node_modules means nothing
+          inside it is ever opened. Dot directories are skipped too, with .github allowed through so
+          workflow files stay visible.</p>
+          <p>Symbolic links are not followed. On Windows, following them can send a directory walk
+          into an endless loop.</p>`,
+        limit: "Files are picked by extension only. A Go file excluded by a build tag is still read, generated code looks the same as hand-written code, and a minified file is spotted by its name rather than its contents.",
+        refs: ["internal/parser/walker.go:46", "walker.go:20"] },
+
+      { id: "parse", spine: "parse", t: "Read them", h: "A type checker for Go, a syntax tree for the rest",
         k: "The difference between knowing what x.Foo() refers to and guessing.",
         M: MechFrontends,
-        why: html`<p>Go gets go/types, which resolves method calls against real receiver types.
-          Everything else gets tree-sitter, which is fast and language-agnostic but has no notion of
-          what a name means.</p>
-          <p>That asymmetry is why the same tool reports EXACT edges confidently in Go and hedges in
-          TypeScript.</p>`,
-        limit: "The Go type checker runs per file with its errors discarded, so even the strong path is only partially type-aware. This is the single biggest reason resolution sits at 23%.",
-        refs: ["internal/parser/golang.go:129", "golang.go:212 inferGoSelections", "internal/parser/javascript.go:253"] },
-      { id: "symbols", spine: "graph", t: "Symbols", h: "What EXACT actually claims",
-        k: "The most over-read word in the output.",
-        M: MechSymbols,
-        why: html`<p>On the parser backend, confidence is a real signal: it records which rung of the
-          resolution ladder matched. On the SCIP backend, every edge is emitted EXACT — the label
-          stops carrying information.</p>`,
-        limit: "So confidence is not comparable across backends. Two graphs of the same repo can both report \"all exact\" and disagree about which edges exist, and nothing in the output would reveal it.",
-        refs: ["internal/graph/scip.go:395", "internal/graph/builder.go:592", "internal/graph/types.go:26"] },
-      { id: "bfs", spine: "radius", t: "Traversal", h: "Visit order, dedup, and the bound",
-        k: "Step it manually. The order is the correctness argument.",
-        M: MechBFS,
-        why: html`<p>A slice with a head index rather than a linked list — the queue is append-only and
-          never shifts. Visited is marked at <strong>enqueue</strong> time, which is what guarantees
-          the recorded parent chain is the shortest path.</p>`,
-        limit: "Because dedup is global, a node reached at depth 2 by a weak path is never revisited by a strong path at depth 3. Confidence therefore depends on which route BFS found first.",
-        refs: ["internal/graph/query.go:76", "query.go:104", "query.go:116"] },
-      { id: "formula", spine: "score", t: "The formula", h: "Where every constant came from",
-        k: "Hand-tuned priors, stated as such.",
-        M: MechFormula,
-        why: html`<p>The design rule is that each piece of evidence enters the score exactly once. The
-          tier base owns caller count and export status; the log1p term adds granularity within a
-          tier; only orthogonal signals — depth, test-ness, confidence — may adjust further.</p>`,
-        limit: "The constants are an unfitted prior — chosen from reasoning about what ought to matter, not estimated from outcome data. The next stage measures how well that prior performs.",
-        refs: ["internal/analyzer/blast_radius.go:259", "blast_radius.go:246", "internal/analyzer/risk_scorer.go:17"] },
-      { id: "eval", spine: "score", t: "Eval", h: "Replaying history to grade the ranking",
-        k: "The subcommand that exists to try to falsify the rest of the tool.",
+        why: html`<p>Go gets the standard library's own parser and type checker, so a method call can
+          be matched to the real type of the thing it was called on. Everything else gets tree-sitter,
+          which is fast and works for any language but only sees shape, not meaning.</p>
+          <p>Both produce the same FileResult, which is why the next stage does not care which one
+          ran. A file with a syntax error keeps whatever was readable rather than being dropped.</p>`,
+        limit: "The Go type checker runs on one file at a time and its errors are thrown away, so even the strong path is only partly type-aware. This is the main reason so many calls end up unresolved. Files over 10 MB are skipped without being reported as gaps.",
+        refs: ["internal/parser/golang.go:129", "internal/parser/registry.go:35"] },
+
+      { id: "source", spine: "parse", t: "Two backends", h: "Compiler-grade index, or best effort",
+        k: "The most important branch in the tool: which backend builds the graph.",
+        M: MechScip,
+        why: html`<p>If a SCIP index already exists it wins. Otherwise the tool tries to generate one
+          per language, each gated on a marker file like go.mod or package.json, and records what
+          happened for every attempt.</p>
+          <p>Recording the outcome matters more than it looks. An indexer that quietly failed would
+          leave a thinner graph with nothing to say so.</p>`,
+        limit: "SCIP indexes are considered fresh by file timestamp rather than content, unlike the parser cache which hashes. Touching a file with no edits throws away a still-valid index. The Go correction that widens a function to its body is Go-only, so the same class of mistake is still possible elsewhere.",
+        refs: ["internal/cmd/index.go:226", "internal/graph/scip.go:257"] },
+
+      { id: "resolve", spine: "graph", t: "Name to edge", h: "Deciding what a call points at",
+        k: "A call site is a piece of text. Turning it into an edge is where a call graph is made or ruined.",
+        M: MechResolve,
+        why: html`<p>The parser backend tries a list of strategies in order and stops at the first that
+          works, recording how it matched. If more than one definition fits, the edge is thrown away
+          rather than guessed at.</p>
+          <p>That is the central trade. A missing edge is something you can count. A wrong edge is
+          something you cannot see, and it quietly spoils every answer built on top of it.</p>`,
+        limit: "Fewer than a quarter of call sites resolve on this repository. The right way to read any blast radius is therefore at least this much, never exactly this much. Confidence also means different things per backend: SCIP marks every edge exact, so on that path the label carries no information.",
+        refs: ["internal/graph/builder.go:592", "internal/graph/scip.go:395"] },
+
+      { id: "incremental", spine: "parse", t: "Only what changed", h: "Why the second index is fast",
+        k: "Files are hashed first. Unchanged ones are never read again.",
+        M: MechIncremental,
+        why: html`<p>Each file's hash is stored with the graph. Next time, a file whose hash still
+          matches is restored from the cache instead of being parsed.</p>`,
+        limit: "Only reading is cached. The graph is rebuilt from scratch every time, because a change in one file can move where a call in an untouched file points. Caching the graph would give wrong answers, not just be harder.",
+        refs: ["internal/parser/cache.go:19", "internal/cmd/index.go:110"] },
+
+      { id: "bind", spine: "graph", t: "Stamp and save", h: "A graph that knows which commit it describes",
+        k: "Line numbers mean nothing without knowing which version they came from.",
+        M: MechBind,
+        why: html`<p>The commit and the remote are written into the graph when it is saved, and
+          analysis checks them before using it. A graph from another revision does not give a slightly
+          worse answer. It gives a confident wrong one.</p>
+          <p>The file is written to a temporary name and then renamed, so an interrupted index leaves
+          the previous graph intact rather than half of a new one.</p>`,
+        limit: "The remote is recorded but never checked, so a graph built from a different repository would be used without complaint as long as the commit happened to match.",
+        refs: ["internal/cmd/index.go:507", "internal/graph/store.go:20"] }
+    ]
+  },
+
+  {
+    id: "analyse",
+    heroTitle: "Then a diff arrives",
+    heroThesis: "Analysis maps your change onto the graph, walks outward to find what depends on it, ranks what is worth reading, and returns a number CI can act on.",
+    label: "III · Analysing",
+    title: "From a patch to a ranked list and an exit code",
+    stages: [
+      { id: "diff", spine: "diff", t: "Read the diff", h: "Patch text into line numbers",
+        k: "The input is a unified diff on standard input. Nothing else is needed.",
+        M: MechDiff,
+        why: html`<p>Each hunk is walked line by line, tracking a position in the new version of the
+          file. Added lines open a range and unchanged lines close it.</p>
+          <p>Deletions are the awkward case, which is why one of the scenarios is built around
+          them.</p>`,
+        limit: "A binary file is spotted by looking for the word binary in the patch header, so a text file whose header happens to contain that word is skipped.",
+        refs: ["internal/diff/parser.go:24", "parser.go:60"] },
+
+      { id: "find", spine: "diff", t: "Find the functions", h: "Which functions those lines sit in",
+        k: "Changed line ranges meet function boundaries. Where they overlap is your change.",
+        M: MechMap,
+        why: html`<p>This is geometry, not name matching. A function counts as changed if any changed
+          line falls inside it.</p>
+          <p>The fiddly part is paths. The diff says internal/x.go and the graph stores a full path
+          from the machine that built it, so they are compared segment by segment.</p>`,
+        limit: "This is only as good as the line numbers in the graph, which is why the stale check matters. A graph one commit behind maps your diff onto whatever now sits at those lines.",
+        refs: ["internal/analyzer/diff_mapper.go:19", "diff_mapper.go:111"] },
+
+      { id: "seeds", spine: "radius", t: "Pick the starting points", h: "What the search begins from",
+        k: "A rule that came from a bug: never start from a file and its functions at once.",
+        M: MechSeeds,
+        why: html`<p>Functions are preferred. A file is only used as a starting point when none of its
+          functions matched, which happens for config files or where the backend could not resolve
+          anything.</p>`,
+        limit: "When a source file contributes no functions, it starts the search at file level and the result is much broader. Nothing in the report distinguishes that from a genuinely small blast radius.",
+        refs: ["internal/analyzer/blast_radius.go:112"] },
+
+      { id: "walk", spine: "radius", t: "Walk the callers", h: "Outward from the change, one hop at a time",
+        k: "Follow calls backwards to find what depends on what you touched. Stop at five hops.",
+        M: MechTraverse,
+        why: html`<p>Edges are followed in reverse. If A calls B and B changed, A is affected. Calls,
+          file membership and type inheritance all carry the effect outward. Imports do not, because
+          file-level imports would drag in most of the repository.</p>
+          <p>Two details decide correctness. The depth limit is checked before a node expands, so an
+          over-deep frontier is never built. And a node is marked as seen when it joins the queue, not
+          when it leaves, which is what makes the recorded route the shortest one.</p>`,
+        limit: "Five hops is a default with no reasoning behind it. Anything further away is invisible, and the report does not say whether the search finished or simply ran out of room.",
+        refs: ["internal/graph/query.go:23", "query.go:100"] },
+
+      { id: "rank", spine: "score", t: "Rank them", h: "A category, then an order",
+        k: "Two separate things that are easy to confuse: how bad it is, and what to read first.",
+        M: MechScore,
+        why: html`<p>The category comes from a short list of rules about how many callers a function
+          has, whether it is public, and how far away it is. The score then orders functions inside
+          each category.</p>
+          <p>Only callers outside tests are counted. Something called from forty tests and one handler
+          is not a review priority, and counting every caller would say otherwise.</p>`,
+        limit: "The categories are blunt. Anything from three to nine callers lands in the same band, and the ordering inside a band rests on numbers chosen by hand rather than measured. The last act shows what happens when they are measured.",
+        refs: ["internal/analyzer/risk_scorer.go:40", "internal/analyzer/blast_radius.go:259"] },
+
+      { id: "explain", spine: "score", t: "Show the route", h: "Why each result is in the list",
+        k: "A ranked list nobody can check is a list nobody trusts.",
+        M: MechWhy,
+        why: html`<p>Every result carries the chain of calls that led to it, rebuilt from the search.
+          That makes each row something you can verify by opening two files.</p>
+          <p>A route is only as trustworthy as its weakest step. One guessed link marks the whole
+          chain as guessed and costs the row points.</p>`,
+        limit: "The route shown is the shortest one, which is not always the most important one. A function reachable by one odd path and twenty obvious ones shows only the path the search happened to find first.",
+        refs: ["internal/analyzer/blast_radius.go:207", "internal/graph/query.go:125"] },
+
+      { id: "owners", spine: "output", t: "Who should look", h: "Turning results into people",
+        k: "The part most easily left out, and the first thing a reviewer actually wants.",
+        M: MechOwners,
+        why: html`<p>Two sources that do not depend on each other: CODEOWNERS for what the project
+          says, and git history for what actually happened. Reviewers are suggested for the affected
+          files as well as the changed ones, since the whole point is that the risk is not where you
+          typed.</p>`,
+        limit: "Git history gives the last person to touch a file, which is not the same as the person who understands it, and it works per file, so one name stands in for everyone who works in a large one.",
+        refs: ["internal/ownership/ownership.go:16", "internal/ownership/codeowners.go:79"] },
+
+      { id: "report", spine: "exit", t: "Report and exit", h: "Four renderings and one number",
+        k: "Everything so far is advice until it becomes an exit code.",
+        M: MechExit,
+        why: html`<p>Terminal, JSON, a pull request comment and a standalone page all render the same
+          result, so they cannot disagree. The comment carries a hidden marker so a second run edits
+          the existing one instead of adding another.</p>
+          <p>Then it ends in a number. Zero is clean, one is high risk, two is medium, three means the
+          tool could not do its job. Keeping three separate is the point: a broken run must never look
+          like a dangerous change.</p>`,
+        limit: "The gate is blunt. One high-risk result anywhere fails the build no matter how weak the route to it was, and the category is the only thing wired to it. A change touching seventy functions can pass while a four-line helper fails.",
+        refs: ["internal/cmd/exit.go:22", "internal/output/github.go:19"] }
+    ]
+  },
+
+  {
+    id: "check",
+    heroTitle: "Does any of it work?",
+    heroThesis: "The rest of the tool, and the measurement that tries to prove the ranking does not work.",
+    label: "IV · Checking",
+    title: "The other commands, the settings, and the evidence",
+    stages: [
+      { id: "queries", spine: "graph", t: "Asking questions", h: "Two commands that need no diff",
+        k: "One answers is there a path between these. The other answers what is fragile.",
+        M: MechQueries,
+        why: html`<p>Both read the saved graph and add nothing to it. <strong>why</strong> finds the
+          shortest chain of calls between two functions and refuses to guess when a name is
+          ambiguous. <strong>hotspots</strong> ranks by how connected a function is, with no change
+          involved at all.</p>`,
+        limit: "why follows calls only, so a link through a shared type is invisible to it even though the blast radius follows those. hotspots ignores how trustworthy each edge is, counting a guessed call the same as a verified one, which puts a known mistake at the top of the list on this very repository.",
+        refs: ["internal/graph/pathfinder.go:99", "internal/analyzer/hotspots.go:37"] },
+
+      { id: "surfaces", spine: "output", t: "Seeing it", h: "A page you can send, an API you can call",
+        k: "Two ways to look at the same graph without a terminal.",
+        M: MechVisualSurfaces,
+        why: html`<p><strong>report</strong> writes one HTML file with the graph drawing built in, so
+          it opens anywhere with no network. <strong>serve</strong> exposes the same engine over HTTP
+          for the dashboard.</p>`,
+        limit: "The server has no login. Binding to localhost is the only thing protecting it, and the flag that exposes it removes that protection. The report embeds the whole graph no matter how small the change was, so its size follows the repository.",
+        refs: ["internal/output/report.go:29", "internal/server/server.go:65"] },
+
+      { id: "config", spine: "files", t: "Settings", h: "What you can change",
+        k: "A flag beats the config file, which beats the built-in default.",
+        M: MechConfig,
+        why: html`<p>The file is found by searching upward from wherever you run, so one file at the
+          top of a repository applies everywhere inside it. A value that is present but out of range
+          is reported rather than silently ignored.</p>`,
+        limit: "The risk thresholds decide what fails your build and have no command line flags, so trying a different setting means editing a file. A bad value leaves you on the defaults until you read the warning.",
+        refs: ["internal/config/config.go:44", "internal/cmd/root.go:21"] },
+
+      { id: "eval", spine: "score", t: "Measuring it", h: "Replaying history to grade the ranking",
+        k: "The part of the tool built to prove the rest of it wrong.",
         M: MechEval,
-        why: html`<p>tracescope eval replays the tool across a repository's own history, labels each
-          commit by whether it was later reverted or hot-fixed, and scores the ranking against a churn
-          baseline and a random baseline.</p>
-          <p>The baselines are the point. Without them "AUC 0.613" is a number with no scale.</p>`,
-        limit: "One repo, n=300, and labels mined from commit messages rather than SZZ blame-tracing. Read it directionally. The random baseline landing at 0.494 is the only evidence the harness itself is not broken.",
-        refs: ["internal/eval/eval.go:86", "eval.go:376 auc", "docs/EVALUATION.md"] }
+        why: html`<p>It replays TraceScope across a repository's own history, marks which changes were
+          later reverted or hot-fixed, and checks whether the ranking puts those first. It scores two
+          other rankers at the same time: one based on how many lines changed, and one that is purely
+          random.</p>
+          <p>Those two comparisons are the point. Without them a number like 0.613 means nothing.</p>`,
+        limit: "One repository, three hundred changes, and labels taken from commit messages rather than tracing blame properly. Read the direction, not the decimal. The random ranker landing near the halfway mark is the only evidence the measurement itself is sound.",
+        refs: ["internal/eval/eval.go:86", "docs/EVALUATION.md"] }
     ]
   }
 ];
@@ -2545,7 +2379,7 @@ function GlossaryDrawer({ open, onClose }) {
             initial=${{ opacity: 0, y: -12 }} animate=${{ opacity: 1, y: 0 }}
             exit=${{ opacity: 0, y: -8 }} transition=${T(0.26)}>
             <div className="row" style=${{ justifyContent: "space-between", marginBottom: "4px" }}>
-              <h3>Glossary — every term this page uses</h3>
+              <h3>Glossary: every term this page uses</h3>
               <button type="button" className="gloss-btn" onClick=${onClose}>close  ·  esc</button>
             </div>
             <dl className="gloss-grid" style=${{ padding: 0 }}>
@@ -2596,8 +2430,10 @@ function App() {
   }, [theme]);
 
   const pickAct = i => { setActIdx(i); setStageIdx(0); };
-  const showScenario = act.id === "pr" || stage.id === "formula" || stage.id === "reading";
-  const showSource = act.id === "build" || stage.id === "symbols" || stage.id === "resolve";
+  // The scenario picker belongs to the stages that read a scenario; the backend
+  // switch belongs to the stages where the choice changes what you see.
+  const showScenario = act.id === "analyse";
+  const showSource = act.id === "index";
   const Mech = stage.M;
 
   return html`
@@ -2669,7 +2505,7 @@ function App() {
             </div>`}
           <p className="ctl-note">
             ${showScenario
-              ? sc.seed + " — " + sc.blurb + ". Replayed against the real graph; " + sc.affected +
+              ? sc.seed + ": " + sc.blurb + ". Replayed against the real graph; " + sc.affected +
                 " affected, exit " + sc.exit + "."
               : source === "scip"
                 ? "SCIP path: compiler-grade symbols, and no way for the tool to express doubt."
@@ -2720,12 +2556,12 @@ function App() {
         ${" "}<code>analyzer/blast_radius.go</code> against that artifact. Evaluation figures come from
         ${" "}<code>docs/EVALUATION.md</code> (gin-gonic/gin, n=300).</p>
         <p><b>What this page does not claim.</b> No SCIP-built graph of this repository exists on
-        disk, so no node or edge counts are quoted for the SCIP path — inventing them would be a
+        disk, so no node or edge counts are quoted for the SCIP path, because inventing them would be a
         made-up number. Timings come from one machine and are indicative, not a benchmark.</p>
         <p><b>Figure revision.</b> These numbers supersede an earlier set measured at 2c2d5e0
         (614 nodes, 928 call edges). Two corrections to the graph builder changed the underlying
-        counts — call edges are now emitted per caller rather than per call site, and chained JS/TS
-        calls no longer resolve by bare name — so every figure was re-derived from a cold re-index
+        counts. Call edges are now written per caller rather than per call site, and chained JS/TS
+        calls no longer resolve by bare name, so every figure was re-derived from a cold re-index
         rather than adjusted. Call edges are ${G.calls} and unresolved call sites
         ${G.rUnres.toLocaleString()}: a narrower graph with fewer inferred edges.</p>
         <p><b>On stated limitations.</b> Every stage carries one. They are scope boundaries, not
