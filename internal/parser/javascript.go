@@ -221,10 +221,7 @@ func (p *JavaScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 		prop := findChildContent(funcNode, "property_identifier", source)
 		if prop != "" {
 			if obj == "" {
-				// The object is an expression with no name (e.g. f().c()). It is
-				// still a receiver, so mark it as one — an empty receiver would
-				// let bare-name resolution bind this to an unrelated local.
-				obj = "?"
+				obj = unnamedReceiver
 			}
 			result.Calls = append(result.Calls, FunctionCall{
 				Name:     prop,
@@ -249,6 +246,16 @@ func (p *JavaScriptParser) walkForCalls(node *sitter.Node, source []byte, result
 		p.walkForCalls(node.Child(i), source, result)
 	}
 }
+
+// unnamedReceiver stands in for a receiver that is an expression rather than a
+// name — the result of a call, for instance, as in remote.split("/").filter(x).
+// Such a call still has a receiver, so the field must not be left empty: an
+// empty receiver is what sends resolveCall down the bare-name path, where it
+// could bind to an unrelated local function of the same name.
+//
+// It is deliberately not "?", which renders in the resolution diagnostics as
+// "?.filter" and reads as JavaScript optional chaining.
+const unnamedReceiver = "(expr)"
 
 // memberReceiver returns the object side of a member_expression as dotted text.
 //

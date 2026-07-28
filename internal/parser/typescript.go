@@ -284,7 +284,7 @@ func (p *TypeScriptParser) parseCallExpr(node *sitter.Node, source []byte, resul
 		prop := findChildContent(funcNode, "property_identifier", source)
 		if prop != "" {
 			if obj == "" {
-				obj = "?" // an unnameable object is still a receiver — see memberReceiver
+				obj = unnamedReceiver // see the constant's comment in javascript.go
 			}
 			result.Calls = append(result.Calls, FunctionCall{
 				Name:         prop,

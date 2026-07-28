@@ -3,6 +3,7 @@ package parser
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -118,9 +119,17 @@ function handler() {
 		t.Errorf("this.helper(): receiver = %q, want %q", got["helper"], "this")
 	}
 	// An unnameable object is still a receiver — it must not be empty, or the
-	// call falls back to bare-name matching.
+	// call falls back to bare-name matching. The placeholder must also not be
+	// mistakable for JavaScript syntax: "?" rendered as "?.run" in the
+	// resolution diagnostics and read as optional chaining.
 	if got["run"] == "" {
 		t.Errorf("make().run(): receiver is empty, so it would resolve as a bare run()")
+	}
+	if got["run"] != unnamedReceiver {
+		t.Errorf("make().run(): receiver = %q, want the %q placeholder", got["run"], unnamedReceiver)
+	}
+	if strings.HasPrefix(unnamedReceiver, "?") {
+		t.Errorf("placeholder %q renders as optional chaining in diagnostics", unnamedReceiver)
 	}
 }
 
