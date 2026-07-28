@@ -141,3 +141,24 @@ export function handler(): void {
 		}
 	}
 }
+
+// TestPython_UnnamedClassKeepsBodyCalls pins that a class whose name cannot be
+// extracted does not swallow its own body. The branch used to return without
+// walking, dropping every call inside the class from the graph.
+func TestPython_UnnamedClassKeepsBodyCalls(t *testing.T) {
+	// A normal class establishes the baseline: body calls are recorded.
+	src := []byte("class Handler:\n    def run(self):\n        helper()\n")
+	res, err := NewPythonParser().Parse("/repo/h.py", src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	found := false
+	for _, c := range res.Calls {
+		if c.Name == "helper" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected the call inside the class body to be recorded")
+	}
+}

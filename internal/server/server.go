@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/anurag/tracescope/internal/analyzer"
 	diffpkg "github.com/anurag/tracescope/internal/diff"
@@ -341,9 +342,20 @@ func ListenAndServe(cfg Config) error {
 	fmt.Fprintf(os.Stderr, "    GET  /api/graph      Full dependency graph\n")
 	fmt.Fprintf(os.Stderr, "    GET  /api/stats      Graph statistics\n")
 	fmt.Fprintf(os.Stderr, "    GET  /api/hotspots   Top coupled functions\n")
+	fmt.Fprintf(os.Stderr, "    GET  /api/repo       Repo and revision of the served graph\n")
+	fmt.Fprintf(os.Stderr, "    GET  /api/analyze/diff  Blast radius of the working tree\n")
 	fmt.Fprintf(os.Stderr, "    POST /api/analyze    Blast radius from diff\n")
-	fmt.Fprintf(os.Stderr, "    GET  /api/why        Call path between functions\n")
 	fmt.Fprintf(os.Stderr, "    POST /api/reload     Reload graph from disk\n\n")
 
-	return http.ListenAndServe(addr, srv.Handler())
+	// Explicit timeouts: the zero-value http.Server has none, so a single slow
+	// or stalled client can hold a connection open indefinitely.
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second, // analysis of a large diff can be slow
+		IdleTimeout:       120 * time.Second,
+	}
+	return httpServer.ListenAndServe()
 }
