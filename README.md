@@ -10,13 +10,12 @@ whole system in 25 steps: how the graph is built, how a pull request is judged, 
 evaluation says about whether the ranking actually works. Every figure on it was measured in
 this repository.
 
-<!-- Replace the URL below with the Vercel deployment once `web/` is deployed.
-     The page is served statically from web/public/how-it-works.html, so the path
-     is <your-deployment>/how-it-works.html and needs no routing or build config. -->
+<!-- Replace the URL below with the Vercel deployment once `web/` is deployed. -->
 
-- Live: `https://<your-vercel-deployment>/how-it-works.html`
-- Offline: open `web/public/how-it-works.html` directly. It is fully self-contained and needs
-  no server and no network.
+- Live: `https://<your-vercel-deployment>/how-it-works`
+- Locally: `cd web && npm run dev`, then open <http://localhost:3000/how-it-works>
+- Offline, no server: open `web/public/how-it-works.html`. That is a standalone build of the
+  same walkthrough with its runtime inlined, so it needs no network.
 
 ## Problem & Approach
 

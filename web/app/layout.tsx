@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/lib/providers";
-import { Nav } from "@/components/nav";
 
 export const metadata: Metadata = {
   title: "TraceScope",
   description: "Dependency graph & blast radius analyzer",
 };
 
+// The dashboard chrome lives in app/(dashboard)/layout.tsx, so routes with their
+// own navigation (the walkthrough) are not nested inside it.
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -16,12 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="font-sans antialiased">
-        <Providers>
-          <div className="flex h-screen overflow-hidden">
-            <Nav />
-            <main className="flex-1 overflow-y-auto">{children}</main>
-          </div>
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
