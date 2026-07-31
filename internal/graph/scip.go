@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/anurag/tracescope/internal/parser"
 	scip "github.com/scip-code/scip/bindings/go/scip"
@@ -147,7 +146,6 @@ func (b *scipGraphBuilder) registerDocuments(documents []*scip.Document) {
 		}
 		b.graphData.FileMetadata[path] = &FileMetadata{
 			Language:  doc.GetLanguage(),
-			ParsedAt:  time.Now().Unix(),
 			NodeCount: countSCIPDefinitions(doc),
 		}
 	}

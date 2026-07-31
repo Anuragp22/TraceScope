@@ -5,6 +5,18 @@ A SCIP-backed PR blast-radius analyzer for Go code review.
 TraceScope turns a diff into a ranked impact report:
 `changed function -> dependency path -> affected code -> risk -> suggested reviewer`.
 
+**How it works: an interactive walkthrough.** Opens on the architecture map, then walks the
+whole system in 25 steps: how the graph is built, how a pull request is judged, and what the
+evaluation says about whether the ranking actually works. Every figure on it was measured in
+this repository.
+
+<!-- Replace the URL below with the Vercel deployment once `web/` is deployed. -->
+
+- Live: `https://<your-vercel-deployment>/how-it-works`
+- Locally: `cd web && npm run dev`, then open <http://localhost:3000/how-it-works>
+- Offline, no server: open `web/public/how-it-works.html`. That is a standalone build of the
+  same walkthrough with its runtime inlined, so it needs no network.
+
 ## Problem & Approach
 
 **Problem:** code review usually shows what changed, but not what may break downstream.

@@ -130,3 +130,26 @@
     @apply font-sans;
   }
 }
+
+/* ── walkthrough semantics ──────────────────────────────────────────
+   Four meanings the walkthrough diagrams reuse everywhere: an edge the
+   tool resolved exactly, one it guessed, the function a diff seeded, and
+   a failure. They are meanings rather than decoration, so they live
+   outside the shadcn palette and stay stable across both themes. */
+:root {
+  --ts-exact: oklch(0.55 0.11 173);
+  --ts-heuristic: oklch(0.58 0.12 70);
+  --ts-seed: oklch(0.52 0.19 285);
+  --ts-alarm: oklch(0.55 0.18 18);
+  --ts-exact-bg: oklch(0.55 0.11 173 / 8%);
+  --ts-seed-bg: oklch(0.52 0.19 285 / 8%);
+}
+
+.dark {
+  --ts-exact: oklch(0.79 0.13 173);
+  --ts-heuristic: oklch(0.79 0.13 78);
+  --ts-seed: oklch(0.72 0.16 285);
+  --ts-alarm: oklch(0.7 0.17 15);
+  --ts-exact-bg: oklch(0.79 0.13 173 / 10%);
+  --ts-seed-bg: oklch(0.72 0.16 285 / 12%);
+}

@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
-	"time"
+	"strings"
 
 	"github.com/anurag/tracescope/internal/parser"
 	"github.com/rs/zerolog/log"
@@ -407,7 +406,6 @@ func (b *Builder) Build(results []*parser.FileResult) *GraphData {
 			gd.FileMetadata[fr.FilePath] = &FileMetadata{
 				Hash:      fr.ContentHash,
 				Language:  string(fr.Language),
-				ParsedAt:  time.Now().Unix(),
 				NodeCount: len(fr.Functions) + len(fr.Classes),
 			}
 		}

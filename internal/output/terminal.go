@@ -2,6 +2,7 @@ package output
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,12 @@ import (
 	"github.com/anurag/tracescope/internal/ownership"
 	"github.com/fatih/color"
 )
+
+// reportOut is where a human-readable report goes. It is stdout, not stderr:
+// the report is this tool's output, so `tracescope analyze > review.txt` has to
+// capture it. Progress lines, warnings and diagnostics about the run itself
+// still go to stderr, which is what keeps a piped report clean.
+var reportOut io.Writer = os.Stdout
 
 var (
 	bold   = color.New(color.Bold)
@@ -26,11 +33,11 @@ var (
 func PrintAnalysis(result *analyzer.AnalysisResult) {
 	cwd, _ := os.Getwd()
 
-	fmt.Fprintln(os.Stderr)
-	cyan.Fprintln(os.Stderr, "TraceScope - Blast Radius Analysis")
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
+	cyan.Fprintln(reportOut, "TraceScope - Blast Radius Analysis")
+	fmt.Fprintln(reportOut)
 
-	bold.Fprintf(os.Stderr, "  Changed Files (%d):\n", len(result.ChangedFiles))
+	bold.Fprintf(reportOut, "  Changed Files (%d):\n", len(result.ChangedFiles))
 	for _, cf := range result.ChangedFiles {
 		label := ""
 		if cf.IsNew {
@@ -38,86 +45,86 @@ func PrintAnalysis(result *analyzer.AnalysisResult) {
 		} else if cf.IsDeleted {
 			label = " [DELETED]"
 		}
-		fmt.Fprintf(os.Stderr, "    %s%s\n", cf.Path, label)
+		fmt.Fprintf(reportOut, "    %s%s\n", cf.Path, label)
 	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 
-	bold.Fprintf(os.Stderr, "  Changed Functions (%d):\n", len(result.ChangedFunctions))
+	bold.Fprintf(reportOut, "  Changed Functions (%d):\n", len(result.ChangedFunctions))
 	for _, cf := range result.ChangedFunctions {
 		relPath := shortPathCwd(cf.FilePath, cwd)
-		fmt.Fprintf(os.Stderr, "    %s ", cf.Node.Name)
-		dim.Fprintf(os.Stderr, "(%s:%d)\n", relPath, cf.Node.StartLine)
+		fmt.Fprintf(reportOut, "    %s ", cf.Node.Name)
+		dim.Fprintf(reportOut, "(%s:%d)\n", relPath, cf.Node.StartLine)
 	}
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 
 	high, medium, low := groupByRisk(result.AffectedFunctions)
 
-	bold.Fprintf(os.Stderr, "  Blast Radius (%d affected):\n", len(result.AffectedFunctions))
-	fmt.Fprintln(os.Stderr)
+	bold.Fprintf(reportOut, "  Blast Radius (%d affected):\n", len(result.AffectedFunctions))
+	fmt.Fprintln(reportOut)
 
 	if len(high) > 0 {
-		red.Fprintf(os.Stderr, "    HIGH RISK (%d):\n", len(high))
+		red.Fprintf(reportOut, "    HIGH RISK (%d):\n", len(high))
 		printAffected(high, cwd)
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 	}
 
 	if len(medium) > 0 {
-		yellow.Fprintf(os.Stderr, "    MEDIUM RISK (%d):\n", len(medium))
+		yellow.Fprintf(reportOut, "    MEDIUM RISK (%d):\n", len(medium))
 		printAffected(medium, cwd)
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 	}
 
 	if len(low) > 0 {
-		green.Fprintf(os.Stderr, "    LOW RISK (%d):\n", len(low))
+		green.Fprintf(reportOut, "    LOW RISK (%d):\n", len(low))
 		printAffected(low, cwd)
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 	}
 
 	if len(result.AffectedFunctions) == 0 {
-		dim.Fprintln(os.Stderr, "    No affected functions found in blast radius.")
-		fmt.Fprintln(os.Stderr)
+		dim.Fprintln(reportOut, "    No affected functions found in blast radius.")
+		fmt.Fprintln(reportOut)
 	}
 
 	if result.TopN > 0 && result.TotalAffected > result.TopN {
-		dim.Fprintf(os.Stderr, "    ... showing top %d of %d affected functions\n\n", result.TopN, result.TotalAffected)
+		dim.Fprintf(reportOut, "    ... showing top %d of %d affected functions\n\n", result.TopN, result.TotalAffected)
 	}
 
-	bold.Fprintln(os.Stderr, "  Summary:")
-	fmt.Fprintf(os.Stderr, "    Graph: %d nodes, %d edges\n", result.TotalNodes, result.TotalEdges)
-	fmt.Fprintf(os.Stderr, "    Changed: %d files, %d functions\n", len(result.ChangedFiles), len(result.ChangedFunctions))
-	fmt.Fprintf(os.Stderr, "    Blast radius: %d affected functions (depth %d)\n", len(result.AffectedFunctions), result.MaxDepth)
-	fmt.Fprintf(os.Stderr, "    Confidence: %d exact, %d heuristic, %d ambiguous skipped, %d unresolved\n",
+	bold.Fprintln(reportOut, "  Summary:")
+	fmt.Fprintf(reportOut, "    Graph: %d nodes, %d edges\n", result.TotalNodes, result.TotalEdges)
+	fmt.Fprintf(reportOut, "    Changed: %d files, %d functions\n", len(result.ChangedFiles), len(result.ChangedFunctions))
+	fmt.Fprintf(reportOut, "    Blast radius: %d affected functions (depth %d)\n", len(result.AffectedFunctions), result.MaxDepth)
+	fmt.Fprintf(reportOut, "    Confidence: %d exact, %d heuristic, %d ambiguous skipped, %d unresolved\n",
 		result.ResolutionStats.ExactCallEdges,
 		result.ResolutionStats.HeuristicCallEdges,
 		result.ResolutionStats.AmbiguousCalls,
 		result.ResolutionStats.UnresolvedCalls,
 	)
-	fmt.Fprintf(os.Stderr, "    Risk: ")
-	red.Fprintf(os.Stderr, "%d high", len(high))
-	fmt.Fprintf(os.Stderr, ", ")
-	yellow.Fprintf(os.Stderr, "%d medium", len(medium))
-	fmt.Fprintf(os.Stderr, ", ")
-	green.Fprintf(os.Stderr, "%d low", len(low))
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(reportOut, "    Risk: ")
+	red.Fprintf(reportOut, "%d high", len(high))
+	fmt.Fprintf(reportOut, ", ")
+	yellow.Fprintf(reportOut, "%d medium", len(medium))
+	fmt.Fprintf(reportOut, ", ")
+	green.Fprintf(reportOut, "%d low", len(low))
+	fmt.Fprintln(reportOut)
 
 	if result.Ownership != nil {
 		if oi, ok := result.Ownership.(*ownership.OwnershipInfo); ok && len(oi.SuggestedReviewers) > 0 {
-			fmt.Fprintln(os.Stderr)
-			bold.Fprintln(os.Stderr, "  Suggested Reviewers:")
+			fmt.Fprintln(reportOut)
+			bold.Fprintln(reportOut, "  Suggested Reviewers:")
 			for _, r := range oi.SuggestedReviewers {
-				fmt.Fprintf(os.Stderr, "    %s ", r.Owner)
-				dim.Fprintf(os.Stderr, "(%d file%s)\n", r.FileCount, pluralS(r.FileCount))
+				fmt.Fprintf(reportOut, "    %s ", r.Owner)
+				dim.Fprintf(reportOut, "(%d file%s)\n", r.FileCount, pluralS(r.FileCount))
 			}
 		}
 	}
 
 	if len(result.ResolutionIssues) > 0 {
-		fmt.Fprintln(os.Stderr)
-		bold.Fprintln(os.Stderr, "  Resolution Diagnostics:")
+		fmt.Fprintln(reportOut)
+		bold.Fprintln(reportOut, "  Resolution Diagnostics:")
 		printResolutionIssues(result.ResolutionIssues, cwd)
 	}
 
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(reportOut)
 }
 
 func pluralS(n int) string {
@@ -166,15 +173,18 @@ func printAffected(funcs []analyzer.AffectedFunction, cwd string) {
 			continue
 		}
 		relPath := shortPathCwd(f.Node.FilePath, cwd)
-		fmt.Fprintf(os.Stderr, "      %s ", f.Node.Name)
-		dim.Fprintf(os.Stderr, "(%s:%d) ", relPath, f.Node.StartLine)
-		dim.Fprintf(os.Stderr, "[score %d, %d callers, depth %d, %s, %s]", f.ReviewScore, f.CallerCount, f.Depth, formatConfidence(f.Confidence), f.Reason)
+		fmt.Fprintf(reportOut, "      %s ", f.Node.Name)
+		dim.Fprintf(reportOut, "(%s:%d) ", relPath, f.Node.StartLine)
+		// CallerCount is every caller including tests; the reason string quotes
+		// production callers only. Labelling both "callers" put two different
+		// numbers under the same word on one line.
+		dim.Fprintf(reportOut, "[score %d, %d total callers, depth %d, %s, %s]", f.ReviewScore, f.CallerCount, f.Depth, formatConfidence(f.Confidence), f.Reason)
 		if f.LastAuthor != "" {
-			dim.Fprintf(os.Stderr, " by %s", f.LastAuthor)
+			dim.Fprintf(reportOut, " by %s", f.LastAuthor)
 		}
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(reportOut)
 		if path := formatImpactPathText(f); path != "" {
-			dim.Fprintf(os.Stderr, "        path: %s\n", path)
+			dim.Fprintf(reportOut, "        path: %s\n", path)
 		}
 	}
 }
@@ -197,13 +207,13 @@ func printResolutionIssues(issues []graph.ResolutionIssue, cwd string) {
 		if symbol == "" {
 			symbol = "-"
 		}
-		dim.Fprintf(os.Stderr, "    %s %s %s (%s)\n", issue.Status, issue.Kind, symbol, path)
+		dim.Fprintf(reportOut, "    %s %s %s (%s)\n", issue.Status, issue.Kind, symbol, path)
 		if issue.Detail != "" {
-			dim.Fprintf(os.Stderr, "      %s\n", issue.Detail)
+			dim.Fprintf(reportOut, "      %s\n", issue.Detail)
 		}
 	}
 	if len(issues) > limit {
-		dim.Fprintf(os.Stderr, "    ... showing first %d of %d diagnostics\n", limit, len(issues))
+		dim.Fprintf(reportOut, "    ... showing first %d of %d diagnostics\n", limit, len(issues))
 	}
 }
 
